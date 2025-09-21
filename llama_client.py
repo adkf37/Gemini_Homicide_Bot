@@ -2,7 +2,8 @@ import os
 from typing import List, Dict, Any, Optional, Union
 
 import google.generativeai as genai
-
+from dotenv import load_dotenv
+load_dotenv()
 from config import config
 from prompt_registry import build_tool_system_prompt
 
@@ -13,7 +14,7 @@ class LlamaClient:
     def __init__(self, model_name: Optional[str] = None):
         self.config = config
         self.model_name = model_name or self.config.get('model.name', 'gemini-1.5-pro-latest')
-        self.system_prompt_variant = self.config.get('prompts.system_prompt_variant', 'tool_use_v1')
+        self.system_prompt_variant = self.config.get('prompts.system_prompt_variant', 'tool_use_reasoned')
 
         api_key_env = self.config.get('model.api_key_env', 'GOOGLE_API_KEY')
         api_key = os.getenv(api_key_env)
@@ -25,6 +26,7 @@ class LlamaClient:
 
         genai.configure(api_key=api_key)
         self.client = genai.GenerativeModel(self.model_name)
+        print(f"✅ Using Gemini model: {self.model_name}")
 
     def generate_with_tools(self, prompt: str, tools: List[Dict[str, Any]],
                             temperature: Optional[float] = None,
@@ -37,22 +39,20 @@ class LlamaClient:
         composed_prompt = f"{system_prompt}\n\nUser question: {prompt}"
 
         try:
-            generation_config = {
-                'temperature': temperature,
-                'max_output_tokens': max_tokens,
-                'top_p': self.config.get('model.top_p', 0.9)
-            }
+            # Use simple approach without generation config for now
+            response = self.client.generate_content(composed_prompt)
 
-            response = self.client.generate_content(
-                composed_prompt,
-                generation_config=generation_config
-            )
-
-            text = getattr(response, 'text', '') or ''
-            return {
-                "content": text,
-                "needs_tool_call": "TOOL_CALL:" in text
-            }
+            # Handle potential safety filters or empty responses
+            if hasattr(response, 'text') and response.text:
+                return {
+                    "content": response.text,
+                    "needs_tool_call": "TOOL_CALL:" in response.text
+                }
+            else:
+                return {
+                    "content": "❌ No response generated (may have been filtered)",
+                    "needs_tool_call": False
+                }
 
         except Exception as e:
             return {"content": f"❌ Error generating response: {e}", "needs_tool_call": False}
@@ -66,24 +66,14 @@ class LlamaClient:
         max_tokens = max_tokens or self.config.get('model.max_tokens', 2048)
 
         try:
-            generation_config = {
-                'temperature': temperature,
-                'max_output_tokens': max_tokens,
-                'top_p': self.config.get('model.top_p', 0.9)
-            }
-
             if stream:
-                return self.client.generate_content(
+                response = self.client.generate_content(
                     prompt,
-                    generation_config=generation_config,
                     stream=True
                 )
+                return response
 
-            response = self.client.generate_content(
-                prompt,
-                generation_config=generation_config
-            )
-
+            response = self.client.generate_content(prompt)
             return getattr(response, 'text', str(response))
 
         except Exception as e:

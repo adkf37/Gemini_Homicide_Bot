@@ -44,7 +44,7 @@ pip install -r requirements.txt
 Edit `config.yaml` to set your preferred model:
 ```yaml
 model:
-  name: "gemini-1.5-pro-latest"
+  name: "gemini-2.5-flash-lite"
   temperature: 0.7
   max_tokens: 2048
 ```

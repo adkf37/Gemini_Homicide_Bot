@@ -54,6 +54,16 @@ model:
 python main.py
 ```
 
+### 6. Launch the Web Chat Interface
+
+Run the Flask server to interact with the bot from a browser:
+
+```bash
+python -m web.web_app
+```
+
+Then open <http://localhost:8000> to start chatting. Use the toggle in the footer to decide whether Gemini should call MCP tools for structured homicide data.
+
 ## 📁 Project Structure
 
 ### Core Files
@@ -146,8 +156,51 @@ app:
 The system analyzes Chicago homicide data including:
 - **12,657+ homicide records** from 2001 to present
 - **Case details**: Date, location, arrest status, case numbers
-- **Geographic data**: Districts, beats, coordinates  
+- **Geographic data**: Districts, beats, coordinates
 - **Classification**: IUCR codes, primary/secondary types
+
+## 🌐 Deploying the Web App Publicly
+
+The Flask interface in `web/web_app.py` is production-ready once you wrap it in a hardened
+web server, secure the environment variables, and host it on an internet-facing machine.
+Below is a reference workflow that you can adapt to any cloud VM or PaaS provider:
+
+1. **Choose a host** – provision a small Linux VM (e.g., Ubuntu 22.04) on your preferred
+   cloud platform or pick a PaaS such as Render, Railway, or Fly.io that can run Python
+   web apps.
+2. **Clone and configure the project** – install system packages (`python3`, `pip`,
+   `git`), pull the repository, and create a Python virtual environment. Install
+   dependencies with `pip install -r requirements.txt` and set the `GOOGLE_API_KEY`
+   environment variable for the Gemini API.
+3. **Run the app with a production WSGI server** – instead of Flask’s built-in server,
+   launch Gunicorn (already compatible with `web/web_app.py`):
+   ```bash
+   pip install gunicorn
+   GOOGLE_API_KEY=... gunicorn --bind 0.0.0.0:8000 web.web_app:app
+   ```
+   Confirm <http://your-server-ip:8000> responds before proceeding.
+4. **Add a reverse proxy (optional but recommended)** – configure Nginx or Caddy in
+   front of Gunicorn to terminate TLS, serve the static assets in `web/static/`, and
+   forward `/` requests to `http://127.0.0.1:8000`. Use Let’s Encrypt or your host’s
+   certificate manager for HTTPS.
+5. **Persist and monitor** – create a systemd service (on VMs) or the equivalent on your
+   platform to keep Gunicorn running, automatically restart on failure, and capture logs.
+
+For container-centric workflows, build a lightweight image from the repo root:
+
+```Dockerfile
+FROM python:3.11-slim
+WORKDIR /app
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt gunicorn
+COPY . .
+ENV GOOGLE_API_KEY=changeme \
+    PORT=8000
+CMD ["gunicorn", "--bind", "0.0.0.0:${PORT}", "web.web_app:app"]
+```
+
+Push the image to your registry and deploy it to a service like Google Cloud Run, AWS
+App Runner, or Azure Container Apps—each will route HTTPS traffic to the container.
 - **Investigation status**: Arrest rates, domestic cases
 
 ## 🚀 Advanced Features

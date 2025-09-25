@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Gemini Homicide Bot</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+</head>
+<body>
+    <main class="app">
+        <header>
+            <h1>Gemini Homicide Bot</h1>
+            <p>Ask questions about Chicago homicide data. Enable "Use MCP tools" to let Gemini query structured datasets.</p>
+        </header>
+
+        <section id="chat" class="chat-window"></section>
+
+        <form id="chat-form">
+            <label class="toggle">
+                <input type="checkbox" id="use-tools" checked />
+                <span>Use MCP tools</span>
+            </label>
+            <div class="input-row">
+                <textarea id="question" rows="2" placeholder="e.g. How many homicides were recorded in 2023?" required></textarea>
+                <button type="submit">Send</button>
+            </div>
+        </form>
+    </main>
+
+    <script>
+        const chatWindow = document.getElementById("chat");
+        const form = document.getElementById("chat-form");
+        const questionInput = document.getElementById("question");
+        const useToolsInput = document.getElementById("use-tools");
+
+        function addMessage(role, text) {
+            const message = document.createElement("div");
+            message.className = `message ${role}`;
+            message.innerHTML = `<strong>${role === "user" ? "You" : "Gemini"}:</strong> ${text}`;
+            chatWindow.appendChild(message);
+            chatWindow.scrollTop = chatWindow.scrollHeight;
+        }
+
+        form.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            const question = questionInput.value.trim();
+            if (!question) {
+                return;
+            }
+
+            addMessage("user", question);
+            questionInput.value = "";
+
+            const statusMessage = document.createElement("div");
+            statusMessage.className = "message status";
+            statusMessage.textContent = "Thinking…";
+            chatWindow.appendChild(statusMessage);
+            chatWindow.scrollTop = chatWindow.scrollHeight;
+
+            try {
+                const response = await fetch("/api/chat", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        question,
+                        use_tools: useToolsInput.checked,
+                    }),
+                });
+
+                const payload = await response.json();
+                statusMessage.remove();
+
+                if (!response.ok) {
+                    throw new Error(payload.error || "Unknown error");
+                }
+
+                const suffix = payload.used_tools ? " (MCP tools)" : "";
+                addMessage("assistant", `${payload.answer}${suffix}`);
+            } catch (error) {
+                statusMessage.remove();
+                addMessage("assistant", `Error: ${error.message}`);
+            }
+        });
+    </script>
+</body>
+</html>

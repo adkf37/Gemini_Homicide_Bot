@@ -67,6 +67,7 @@ header p {
 .message.assistant {
     align-self: flex-start;
     background: white;
+    color: black;
     border: 1px solid rgba(31, 60, 136, 0.1);
 }
 

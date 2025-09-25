@@ -28,14 +28,21 @@ class LocalLLMApp:
 
     def ask_question_with_mcp(self, question: str, temperature: Optional[float] = None):
         """Ask a question that can use MCP tools intelligently."""
-        # Pass temperature through to the intelligent MCP handler
-        # The temperature will be handled by the LlamaClient when it generates responses
-        result = intelligent_mcp.handle_question_with_tools(question, self.llama_client)
-        
-        # Handle both string and dict returns from intelligent_mcp
-        if isinstance(result, dict):
-            return result.get("final_answer", str(result))
-        return str(result)
+        # Pass temperature through to the intelligent MCP handler.
+        # The handler can optionally return an interaction trace when requested.
+        trace_or_response = intelligent_mcp.handle_question_with_tools(
+            question,
+            self.llama_client,
+            include_trace=True,
+        )
+
+        if isinstance(trace_or_response, dict):
+            final_answer = trace_or_response.get("final_answer", "")
+            return final_answer, trace_or_response
+
+        # Fallback for unexpected non-trace responses.
+        fallback_answer = str(trace_or_response)
+        return fallback_answer, {"final_answer": fallback_answer}
 
     def interactive_mode(self):
         """Run the application in interactive mode."""
@@ -158,8 +165,13 @@ class LocalLLMApp:
                         response = self.ask_question_with_mcp(user_input)
                     else:
                         response = self.ask_question(user_input, temperature=current_temp)
-                    
-                    print(f"🤖 Assistant: {response}")
+
+                    if isinstance(response, tuple):
+                        answer_text, _trace = response
+                    else:
+                        answer_text = response
+
+                    print(f"🤖 Assistant: {answer_text}")
                     
             except KeyboardInterrupt:
                 print("\n👋 Goodbye!")

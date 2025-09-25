@@ -10,10 +10,17 @@
     <main class="app">
         <header>
             <h1>Gemini Homicide Bot</h1>
-            <p>Ask questions about Chicago homicide data. Enable "Use MCP tools" to let Gemini query structured datasets.</p>
+            <p>Ask questions about Chicago homicide data. Enable "Use MCP tools" to let Gemini query structured datasets and view quick charts.</p>
         </header>
 
-        <section id="chat" class="chat-window"></section>
+        <section class="output-layout">
+            <section id="chat" class="chat-window" aria-live="polite"></section>
+            <aside class="chart-panel" aria-live="polite">
+                <h2>Data visualization</h2>
+                <div id="chart-placeholder" class="chart-placeholder">Charts will appear when MCP tool data is available.</div>
+                <canvas id="chartCanvas" role="img" aria-label="Homicide data visualization"></canvas>
+            </aside>
+        </section>
 
         <form id="chat-form">
             <label class="toggle">
@@ -27,11 +34,17 @@
         </form>
     </main>
 
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js" integrity="sha384-k2zvwrHgwlHGawEq+y3OCAXoTr4Wr9PXgC7cmP3xNm0PpL8EG17fpy5b5kvo0F0E" crossorigin="anonymous"></script>
     <script>
         const chatWindow = document.getElementById("chat");
         const form = document.getElementById("chat-form");
         const questionInput = document.getElementById("question");
         const useToolsInput = document.getElementById("use-tools");
+        const chartCanvas = document.getElementById("chartCanvas");
+        const chartPlaceholder = document.getElementById("chart-placeholder");
+
+        const DEFAULT_CHART_MESSAGE = "Charts will appear when MCP tool data is available.";
+        let homicideChart = null;
 
         function addMessage(role, text) {
             const message = document.createElement("div");
@@ -39,6 +52,181 @@
             message.innerHTML = `<strong>${role === "user" ? "You" : "Gemini"}:</strong> ${text}`;
             chatWindow.appendChild(message);
             chatWindow.scrollTop = chatWindow.scrollHeight;
+        }
+
+        function titleCase(text) {
+            return text
+                .split(/[_\s]+/)
+                .filter(Boolean)
+                .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+                .join(" ");
+        }
+
+        function showChartPlaceholder(message = DEFAULT_CHART_MESSAGE) {
+            if (homicideChart) {
+                homicideChart.destroy();
+                homicideChart = null;
+            }
+            chartCanvas.style.display = "none";
+            chartPlaceholder.textContent = message;
+            chartPlaceholder.style.display = "flex";
+        }
+
+        function showChartLoading() {
+            chartPlaceholder.textContent = "Loading data…";
+            chartPlaceholder.style.display = "flex";
+            if (!homicideChart) {
+                chartCanvas.style.display = "none";
+            }
+        }
+
+        function buildSeries(map, title, options = {}) {
+            if (!map || typeof map !== "object") {
+                return null;
+            }
+
+            const entries = Object.entries(map)
+                .map(([label, rawValue]) => {
+                    const numericValue = typeof rawValue === "number" ? rawValue : Number(rawValue);
+                    return Number.isFinite(numericValue) ? [label, numericValue] : null;
+                })
+                .filter(Boolean);
+
+            if (!entries.length) {
+                return null;
+            }
+
+            if (options.sort === "numericKey") {
+                entries.sort((a, b) => {
+                    const aNum = Number(a[0]);
+                    const bNum = Number(b[0]);
+                    if (Number.isFinite(aNum) && Number.isFinite(bNum)) {
+                        return aNum - bNum;
+                    }
+                    return a[0].localeCompare(b[0]);
+                });
+            } else if (options.sort === "valueDesc") {
+                entries.sort((a, b) => b[1] - a[1]);
+            }
+
+            return {
+                title,
+                labels: entries.map(([label]) => label),
+                values: entries.map(([, value]) => value),
+            };
+        }
+
+        function extractChartSeries(toolData) {
+            if (!toolData || typeof toolData !== "object" || Array.isArray(toolData)) {
+                return null;
+            }
+
+            if (toolData.year_breakdown) {
+                const series = buildSeries(toolData.year_breakdown, "Homicides by Year", { sort: "numericKey" });
+                if (series) {
+                    return series;
+                }
+            }
+
+            if (toolData.by_year) {
+                const series = buildSeries(toolData.by_year, "Homicides by Year", { sort: "numericKey" });
+                if (series) {
+                    return series;
+                }
+            }
+
+            const primary = toolData.primary_breakdown;
+            if (primary && primary.data) {
+                const title = primary.type ? `Homicides by ${titleCase(primary.type)}` : "Homicide Breakdown";
+                const series = buildSeries(primary.data, title, { sort: "valueDesc" });
+                if (series) {
+                    return series;
+                }
+            }
+
+            const preferredKeys = [
+                ["ward_breakdown", "Homicides by Ward"],
+                ["top_wards", "Top Wards by Homicides"],
+                ["district_breakdown", "Homicides by Police District"],
+                ["top_districts", "Top Districts by Homicides"],
+                ["community_area_breakdown", "Homicides by Community Area"],
+                ["top_community_areas", "Top Community Areas by Homicides"],
+                ["top_locations", "Top Locations"],
+            ];
+
+            for (const [key, label] of preferredKeys) {
+                if (toolData[key]) {
+                    const series = buildSeries(toolData[key], label, { sort: "valueDesc" });
+                    if (series) {
+                        return series;
+                    }
+                }
+            }
+
+            for (const [key, value] of Object.entries(toolData)) {
+                if (value && typeof value === "object" && !Array.isArray(value)) {
+                    const series = buildSeries(value, titleCase(key), { sort: "valueDesc" });
+                    if (series) {
+                        return series;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        function renderChart(series) {
+            if (!series) {
+                showChartPlaceholder("MCP tool response did not include chartable data.");
+                return;
+            }
+
+            const chartData = {
+                labels: series.labels,
+                datasets: [
+                    {
+                        label: series.title,
+                        data: series.values,
+                        backgroundColor: "rgba(31, 60, 136, 0.35)",
+                        borderColor: "rgba(31, 60, 136, 0.85)",
+                        borderWidth: 1,
+                        hoverBackgroundColor: "rgba(109, 93, 252, 0.5)",
+                    },
+                ],
+            };
+
+            const chartOptions = {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    title: { display: true, text: series.title },
+                },
+                scales: {
+                    x: {
+                        ticks: { autoSkip: false, maxRotation: 45, minRotation: 0 },
+                    },
+                    y: {
+                        beginAtZero: true,
+                        precision: 0,
+                    },
+                },
+            };
+
+            if (homicideChart) {
+                homicideChart.data = chartData;
+                homicideChart.options = chartOptions;
+                homicideChart.update();
+            } else {
+                homicideChart = new Chart(chartCanvas.getContext("2d"), {
+                    type: "bar",
+                    data: chartData,
+                    options: chartOptions,
+                });
+            }
+
+            chartPlaceholder.style.display = "none";
+            chartCanvas.style.display = "block";
         }
 
         form.addEventListener("submit", async (event) => {
@@ -50,6 +238,12 @@
 
             addMessage("user", question);
             questionInput.value = "";
+
+            if (useToolsInput.checked) {
+                showChartLoading();
+            } else {
+                showChartPlaceholder();
+            }
 
             const statusMessage = document.createElement("div");
             statusMessage.className = "message status";
@@ -74,11 +268,27 @@
                     throw new Error(payload.error || "Unknown error");
                 }
 
-                const suffix = payload.used_tools ? " (MCP tools)" : "";
+                const suffixParts = [];
+                if (payload.used_tools && payload.tool_name) {
+                    suffixParts.push(`MCP tools: ${payload.tool_name}`);
+                } else if (payload.used_tools) {
+                    suffixParts.push("MCP tools");
+                }
+                const suffix = suffixParts.length ? ` (${suffixParts.join(", ")})` : "";
                 addMessage("assistant", `${payload.answer}${suffix}`);
+
+                if (payload.tool_data) {
+                    const series = extractChartSeries(payload.tool_data);
+                    renderChart(series);
+                } else if (payload.used_tools) {
+                    showChartPlaceholder("No chartable data was returned for this tool call.");
+                } else {
+                    showChartPlaceholder();
+                }
             } catch (error) {
                 statusMessage.remove();
                 addMessage("assistant", `Error: ${error.message}`);
+                showChartPlaceholder("Unable to load chart data.");
             }
         });
     </script>

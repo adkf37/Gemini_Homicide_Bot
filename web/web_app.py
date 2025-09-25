@@ -49,16 +49,31 @@ def chat() -> tuple[Any, int]:
     try:
         # Allow the frontend to toggle tool usage.
         if use_tools:
-            answer = llm_app.ask_question_with_mcp(question)
-            used_tools = True
+            answer, trace = llm_app.ask_question_with_mcp(question)
+            tool_execution = (trace or {}).get("tool_execution") or {}
+            tool_call = (trace or {}).get("tool_call") or {}
+            tool_name = tool_call.get("name")
+            tool_data = tool_execution.get("raw_result") if not tool_execution.get("error") else None
+            used_tools = bool(tool_execution)
+
+            payload = {
+                "answer": answer,
+                "used_tools": used_tools,
+                "tool_name": tool_name,
+                "tool_data": tool_data,
+                "interaction_trace": trace,
+            }
         else:
             answer = llm_app.ask_question(question)
-            used_tools = False
+            payload = {
+                "answer": answer,
+                "used_tools": False,
+                "tool_name": None,
+                "tool_data": None,
+                "interaction_trace": None,
+            }
 
-        return jsonify({
-            "answer": answer,
-            "used_tools": used_tools
-        }), 200
+        return jsonify(payload), 200
     except Exception as exc:  # pragma: no cover - defensive logging
         logger.exception("Error while handling chat request")
         return jsonify({"error": str(exc)}), 500

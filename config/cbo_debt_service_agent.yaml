@@ -1,0 +1,21 @@
+# Configuration for the CBO Debt Service Agent
+
+twitter:
+  account_username: "CBO_DebtService"
+  follow_screen_name: "USCBO"
+  poll_interval_seconds: 300
+
+files:
+  coefficients_csv: "config/debt_service_coefficients.csv"
+  download_dir: "data/cbo_downloads"
+  database_path: "data/cbo_cost_estimates.db"
+
+excel:
+  summary_sheet: "Summary"
+  header_row: 1
+  total_deficit_label: "Total Deficit"
+  debt_service_label: "Debt service"
+  output_suffix: "_with_debt_service"
+
+processing:
+  max_tweets_per_run: 5

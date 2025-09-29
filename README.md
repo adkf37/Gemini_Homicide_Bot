@@ -1,6 +1,6 @@
 # Gemini LLM with MCP Tools for Homicide Data Analysis
 
-This project integrates Google's Gemini 1.5 Pro with **Model Context Protocol (MCP)** tools for intelligent querying of homicide data. The system allows users to ask natural language questions about crime statistics and automatically calls appropriate data analysis tools.
+This project integrates Google's Gemini 1.5 Pro with **Model Context Protocol (MCP)** tools for intelligent querying of homicide data. The system allows users to ask natural language questions about crime statistics and automatically calls appropriate data analysis tools. It also includes an autonomous **CBO Debt Service Agent** that monitors Congressional Budget Office cost estimates and calculates the associated debt service effects.
 
 ## 🚀 Features
 
@@ -11,6 +11,49 @@ This project integrates Google's Gemini 1.5 Pro with **Model Context Protocol (M
 - **Interactive CLI**: User-friendly command-line interface with helpful commands
 - **Robust Parsing**: Advanced JSON parsing for reliable tool call extraction
 - **Rich Data Visualization**: Formatted output with statistics, trends, and insights
+- **CBO Debt Service Automation**: Optional background agent that downloads cost estimates, inserts debt service calculations into Excel files, and republishes the updated workbook on social media.
+
+## 🆕 CBO Debt Service Agent
+
+The debt service agent automates the following workflow without human intervention:
+
+1. Monitor the [CBO Cost Estimate](https://twitter.com/USCBO) Twitter feed for new cost estimate announcements.
+2. Follow the cost estimate link, download the associated Excel workbook, and locate the "Total Deficit" row.
+3. Apply configurable debt service coefficients (stored in `config/debt_service_coefficients.csv`) to compute debt service impacts for each year.
+4. Insert a "Debt service" row into the Excel workbook and save a new copy alongside the original download.
+5. Tweet the updated workbook from the agent's account and persist a record of the processed estimate in a local SQLite database.
+
+### Configuration & Setup
+
+1. **Install dependencies** (if not already done):
+
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+2. **Provide Twitter API credentials** as environment variables before running the agent:
+
+   ```bash
+   export TWITTER_BEARER_TOKEN="..."
+   export TWITTER_API_KEY="..."
+   export TWITTER_API_SECRET="..."
+   export TWITTER_ACCESS_TOKEN="..."
+   export TWITTER_ACCESS_SECRET="..."
+   ```
+
+3. **Review configuration** in `config/cbo_debt_service_agent.yaml` to adjust:
+   - Twitter usernames to follow/post from
+   - Polling interval and processing limits
+   - File locations for downloads, coefficient CSV, and the SQLite database
+   - Excel sheet names and labels used to find the "Total Deficit" row
+
+4. **Run the agent**:
+
+   ```bash
+   python -m agents.cbo_debt_service_agent
+   ```
+
+The agent records all processed estimates in `data/cbo_cost_estimates.db` and stores downloaded workbooks in `data/cbo_downloads/`. Update the coefficient CSV to fine-tune the debt service multipliers over time.
 
 ## 🎯 What You Can Ask
 

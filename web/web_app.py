@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, cast
 
 from flask import Flask, jsonify, render_template, request
 
@@ -48,13 +48,20 @@ def chat() -> tuple[Any, int]:
 
     try:
         # Allow the frontend to toggle tool usage.
+        # ...existing code...
         if use_tools:
             answer, trace = llm_app.ask_question_with_mcp(question)
-            tool_execution = (trace or {}).get("tool_execution") or {}
-            tool_call = (trace or {}).get("tool_call") or {}
-            tool_name = tool_call.get("name")
-            tool_data = tool_execution.get("raw_result") if not tool_execution.get("error") else None
-            used_tools = bool(tool_execution)
+    
+            # Method 1: Use safer default initialization
+            trace_dict = {} if trace is None else trace
+            tool_execution = {} if "tool_execution" not in trace_dict else trace_dict["tool_execution"]
+            tool_call = {} if "tool_call" not in trace_dict else trace_dict["tool_call"]
+
+            tool_name = tool_call.get("name") if isinstance(tool_call, dict) else None
+            has_error = tool_execution.get("error") if isinstance(tool_execution, dict) else None
+            tool_data = tool_execution.get("raw_result") if isinstance(tool_execution, dict) and not has_error else None
+            used_tools = bool(isinstance(tool_execution, dict) and (tool_execution.get("raw_result") is not None or has_error))
+  
 
             payload = {
                 "answer": answer,

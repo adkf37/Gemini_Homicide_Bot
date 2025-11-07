@@ -113,6 +113,7 @@
                 title,
                 labels: entries.map(([label]) => label),
                 values: entries.map(([, value]) => value),
+                chartType: options.chartType || "bar",
             };
         }
 
@@ -122,14 +123,14 @@
             }
 
             if (toolData.year_breakdown) {
-                const series = buildSeries(toolData.year_breakdown, "Homicides by Year", { sort: "numericKey" });
+                const series = buildSeries(toolData.year_breakdown, "Homicides by Year", { sort: "numericKey", chartType: "line" });
                 if (series) {
                     return series;
                 }
             }
 
             if (toolData.by_year) {
-                const series = buildSeries(toolData.by_year, "Homicides by Year", { sort: "numericKey" });
+                const series = buildSeries(toolData.by_year, "Homicides by Year", { sort: "numericKey", chartType: "line" });
                 if (series) {
                     return series;
                 }
@@ -138,7 +139,7 @@
             const primary = toolData.primary_breakdown;
             if (primary && primary.data) {
                 const title = primary.type ? `Homicides by ${titleCase(primary.type)}` : "Homicide Breakdown";
-                const series = buildSeries(primary.data, title, { sort: "valueDesc" });
+                const series = buildSeries(primary.data, title, { sort: "valueDesc", chartType: primary.type === "location" ? "bar" : "bar" });
                 if (series) {
                     return series;
                 }
@@ -181,6 +182,16 @@
                 return;
             }
 
+            const ChartLib = window.Chart;
+            if (!ChartLib) {
+                console.error("Chart.js is not available. Ensure the CDN script loads correctly.");
+                showChartPlaceholder("Chart library unavailable. Please check your network and reload.");
+                return;
+            }
+
+            chartPlaceholder.style.display = "none";
+            chartCanvas.style.display = "block";
+
             const chartData = {
                 labels: series.labels,
                 datasets: [
@@ -213,20 +224,27 @@
                 },
             };
 
+            const chartType = series.chartType || "bar";
+
             if (homicideChart) {
-                homicideChart.data = chartData;
-                homicideChart.options = chartOptions;
-                homicideChart.update();
-            } else {
-                homicideChart = new Chart(chartCanvas.getContext("2d"), {
-                    type: "bar",
+                if (homicideChart.config.type !== chartType) {
+                    homicideChart.destroy();
+                    homicideChart = null;
+                } else {
+                    homicideChart.data = chartData;
+                    homicideChart.options = chartOptions;
+                    homicideChart.update();
+                    homicideChart.resize();
+                }
+            }
+
+            if (!homicideChart) {
+                homicideChart = new ChartLib(chartCanvas.getContext("2d"), {
+                    type: chartType,
                     data: chartData,
                     options: chartOptions,
                 });
             }
-
-            chartPlaceholder.style.display = "none";
-            chartCanvas.style.display = "block";
         }
 
         form.addEventListener("submit", async (event) => {

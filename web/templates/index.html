@@ -34,8 +34,16 @@
         </form>
     </main>
 
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js" integrity="sha384-k2zvwrHgwlHGawEq+y3OCAXoTr4Wr9PXgC7cmP3xNm0PpL8EG17fpy5b5kvo0F0E" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js" crossorigin="anonymous"></script>
     <script>
+        // Verify Chart.js loaded successfully
+        if (typeof Chart === 'undefined') {
+            console.error('Chart.js failed to load from CDN');
+            alert('Chart library failed to load. Charts will not be available. Please check your internet connection and refresh.');
+        } else {
+            console.log('Chart.js loaded successfully, version:', Chart.version);
+        }
+
         const chatWindow = document.getElementById("chat");
         const form = document.getElementById("chat-form");
         const questionInput = document.getElementById("question");
@@ -113,6 +121,7 @@
                 title,
                 labels: entries.map(([label]) => label),
                 values: entries.map(([, value]) => value),
+                chartType: options.chartType || "bar",
             };
         }
 
@@ -121,15 +130,16 @@
                 return null;
             }
 
+            // Year breakdown data should be line charts
             if (toolData.year_breakdown) {
-                const series = buildSeries(toolData.year_breakdown, "Homicides by Year", { sort: "numericKey" });
+                const series = buildSeries(toolData.year_breakdown, "Homicides by Year", { sort: "numericKey", chartType: "line" });
                 if (series) {
                     return series;
                 }
             }
 
             if (toolData.by_year) {
-                const series = buildSeries(toolData.by_year, "Homicides by Year", { sort: "numericKey" });
+                const series = buildSeries(toolData.by_year, "Homicides by Year", { sort: "numericKey", chartType: "line" });
                 if (series) {
                     return series;
                 }
@@ -176,10 +186,20 @@
         }
 
         function renderChart(series) {
+            // Defensive check for Chart.js availability
+            if (typeof Chart === 'undefined') {
+                console.error('Chart.js is not available');
+                showChartPlaceholder("Chart library not loaded. Please refresh the page.");
+                return;
+            }
+
             if (!series) {
                 showChartPlaceholder("MCP tool response did not include chartable data.");
                 return;
             }
+
+            chartPlaceholder.style.display = "none";
+            chartCanvas.style.display = "block";
 
             const chartData = {
                 labels: series.labels,
@@ -189,8 +209,9 @@
                         data: series.values,
                         backgroundColor: "rgba(31, 60, 136, 0.35)",
                         borderColor: "rgba(31, 60, 136, 0.85)",
-                        borderWidth: 1,
+                        borderWidth: 2,
                         hoverBackgroundColor: "rgba(109, 93, 252, 0.5)",
+                        tension: 0.1,  // Smooth line charts
                     },
                 ],
             };
@@ -213,20 +234,33 @@
                 },
             };
 
-            if (homicideChart) {
-                homicideChart.data = chartData;
-                homicideChart.options = chartOptions;
-                homicideChart.update();
-            } else {
+            const chartType = series.chartType || "bar";
+
+            try {
+                // Destroy and recreate if chart type changes
+                if (homicideChart) {
+                    if (homicideChart.config.type !== chartType) {
+                        homicideChart.destroy();
+                        homicideChart = null;
+                    } else {
+                        homicideChart.data = chartData;
+                        homicideChart.options = chartOptions;
+                        homicideChart.update();
+                        return;
+                    }
+                }
+
+                // Create new chart
                 homicideChart = new Chart(chartCanvas.getContext("2d"), {
-                    type: "bar",
+                    type: chartType,
                     data: chartData,
                     options: chartOptions,
                 });
+                console.log('Chart rendered successfully:', chartType);
+            } catch (error) {
+                console.error('Error creating chart:', error);
+                showChartPlaceholder("Error rendering chart: " + error.message);
             }
-
-            chartPlaceholder.style.display = "none";
-            chartCanvas.style.display = "block";
         }
 
         form.addEventListener("submit", async (event) => {

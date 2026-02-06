@@ -159,49 +159,143 @@ The system analyzes Chicago homicide data including:
 - **Geographic data**: Districts, beats, coordinates
 - **Classification**: IUCR codes, primary/secondary types
 
-## 🌐 Deploying the Web App Publicly
+## 🌐 Deploying to Google Cloud Run
 
-The Flask interface in `web/web_app.py` is production-ready once you wrap it in a hardened
-web server, secure the environment variables, and host it on an internet-facing machine.
-Below is a reference workflow that you can adapt to any cloud VM or PaaS provider:
+The application ships with a `Dockerfile` and GitHub Actions workflow for automated deployment to Google Cloud Run.
 
-1. **Choose a host** – provision a small Linux VM (e.g., Ubuntu 22.04) on your preferred
-   cloud platform or pick a PaaS such as Render, Railway, or Fly.io that can run Python
-   web apps.
-2. **Clone and configure the project** – install system packages (`python3`, `pip`,
-   `git`), pull the repository, and create a Python virtual environment. Install
-   dependencies with `pip install -r requirements.txt` and set the `GOOGLE_API_KEY`
-   environment variable for the Gemini API.
-3. **Run the app with a production WSGI server** – instead of Flask’s built-in server,
-   launch Gunicorn (already compatible with `web/web_app.py`):
-   ```bash
-   pip install gunicorn
-   GOOGLE_API_KEY=... gunicorn --bind 0.0.0.0:8000 web.web_app:app
-   ```
-   Confirm <http://your-server-ip:8000> responds before proceeding.
-4. **Add a reverse proxy (optional but recommended)** – configure Nginx or Caddy in
-   front of Gunicorn to terminate TLS, serve the static assets in `web/static/`, and
-   forward `/` requests to `http://127.0.0.1:8000`. Use Let’s Encrypt or your host’s
-   certificate manager for HTTPS.
-5. **Persist and monitor** – create a systemd service (on VMs) or the equivalent on your
-   platform to keep Gunicorn running, automatically restart on failure, and capture logs.
+### Prerequisites
 
-For container-centric workflows, build a lightweight image from the repo root:
+1. **Google Cloud Project**
+   - Create a project at [console.cloud.google.com](https://console.cloud.google.com)
+   - Enable Cloud Run API and Artifact Registry API
+   - Note your project ID
 
-```Dockerfile
-FROM python:3.11-slim
-WORKDIR /app
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt gunicorn
-COPY . .
-ENV GOOGLE_API_KEY=changeme \
-    PORT=8000
-CMD ["gunicorn", "--bind", "0.0.0.0:${PORT}", "web.web_app:app"]
+2. **Gemini API Key**
+   - Get your key from [Google AI Studio](https://aistudio.google.com/app/apikey)
+   - Store it in Google Secret Manager:
+     ```bash
+     gcloud secrets create gemini-api-key --data-file=- <<< "YOUR_API_KEY_HERE"
+     ```
+
+3. **Workload Identity Federation (for CI/CD)**
+   - Set up Workload Identity Federation to allow GitHub Actions to deploy
+   - Follow [Google's guide](https://github.com/google-github-actions/auth#setting-up-workload-identity-federation)
+   - Required GitHub secrets:
+     - `GCP_PROJECT_ID`: Your Google Cloud project ID
+     - `WIF_PROVIDER`: Workload Identity Provider resource name
+     - `WIF_SERVICE_ACCOUNT`: Service account email for deployment
+
+### Manual Deployment
+
+Deploy directly from your local machine:
+
+```bash
+# Authenticate with Google Cloud
+gcloud auth login
+gcloud config set project YOUR_PROJECT_ID
+
+# Build and deploy
+gcloud run deploy gemini-homicide-bot \
+  --source . \
+  --region us-central1 \
+  --allow-unauthenticated \
+  --set-secrets=GOOGLE_API_KEY=gemini-api-key:latest \
+  --memory 512Mi \
+  --cpu 1
 ```
 
-Push the image to your registry and deploy it to a service like Google Cloud Run, AWS
-App Runner, or Azure Container Apps—each will route HTTPS traffic to the container.
-- **Investigation status**: Arrest rates, domestic cases
+Cloud Run will:
+- Build the Docker image from the `Dockerfile`
+- Deploy to a public HTTPS URL
+- Auto-scale from 0 to 10 instances based on traffic
+- Inject `GOOGLE_API_KEY` from Secret Manager
+
+### Automated Deployment with GitHub Actions
+
+The repository includes `.github/workflows/deploy-cloud-run.yml` that automatically:
+1. Runs unit tests on every push
+2. Builds and pushes a Docker image to Artifact Registry
+3. Deploys to Cloud Run on pushes to `main`
+
+**Setup:**
+1. Configure the GitHub secrets listed above
+2. Push to the `main` branch
+3. GitHub Actions will handle the rest
+4. Check the Actions tab for deployment status and service URL
+
+### Local Testing with Docker
+
+Test the containerized app locally:
+
+```bash
+# Build the image
+docker build -t gemini-homicide-bot .
+
+# Run locally
+docker run -p 8080:8080 \
+  -e GOOGLE_API_KEY="your-api-key" \
+  gemini-homicide-bot
+
+# Test the health endpoint
+curl http://localhost:8080/api/health
+```
+
+### Alternative Deployment Options
+
+**Render / Railway / Fly.io:**
+- Connect your GitHub repo
+- Set `GOOGLE_API_KEY` environment variable
+- Deploy from `Dockerfile` or use build command: `gunicorn --bind 0.0.0.0:$PORT web.web_app:app`
+
+**Self-hosted VM:**
+- Clone repo and install dependencies
+- Run with Gunicorn behind Nginx for HTTPS
+- Use systemd for process management
+
+## 🧪 Testing
+
+### Unit Tests
+
+Run deterministic tests against the homicide data MCP:
+
+```bash
+pip install pytest
+pytest tests/test_homicide_mcp.py -v
+```
+
+These tests use a small fixture dataset (`tests/fixtures/mini_homicides.csv`) to validate:
+- Data loading and normalization
+- Query filtering (year, district, ward, arrest status, domestic)
+- Grouping and aggregation logic
+- Edge cases and error handling
+
+### LLM Performance Testing
+
+Evaluate different Gemini models on complex queries:
+
+```bash
+python test_llm_performance.py
+```
+
+This comprehensive test suite includes:
+- **Simple queries**: Single-parameter tool calls (e.g., "How many homicides in 2023?")
+- **"Which X most" queries**: Requires correct `group_by` parameter extraction
+- **Top N queries**: Tests `top_n` parameter parsing
+- **Complex multi-criteria**: Multiple filters + grouping (e.g., "Top 3 districts with non-domestic homicides where no arrests were made, 2015-2019")
+- **Negative cases**: Ensures model doesn't call tools for non-homicide questions
+- **Year range variations**: Tests different phrasings ("from X to Y", "between X and Y")
+- **Synonym handling**: "murders", "killings", "homicides"
+- **Answer consistency validation**: Checks if LLM's answer matches tool output
+
+Results are saved to `llm_test_results_<timestamp>.json` with:
+- Per-model pass rates
+- Category breakdowns
+- Parameter extraction accuracy
+- Response times
+- Detailed failure reasons
+
+**Configure models to test:**
+Edit `model_configs.yaml` to add/remove Gemini models for evaluation.
 
 ## 🚀 Advanced Features
 
@@ -210,6 +304,7 @@ App Runner, or Azure Container Apps—each will route HTTPS traffic to the conta
 - **Rich Formatting**: Statistics tables, trends, and highlighted insights
 - **Debug Mode**: Comprehensive logging for troubleshooting
 - **Flexible Queries**: Natural language understanding for various question formats
+- **Automated Testing**: CI runs unit tests on every push; comprehensive LLM eval suite
 
 ## 🔄 Migration from RAG
 

@@ -83,6 +83,84 @@ class LLMPerformanceTester:
                     "expected_top_n": 5,
                     "expected_domestic": True,
                     "complexity": "complex"
+                },
+                {
+                    "question": "From 2015 to 2019, which district had the most non-domestic homicides with no arrests? Show top 3.",
+                    "expected_tool": "query_homicides_advanced",
+                    "expected_params": ["start_year", "end_year", "group_by", "top_n", "domestic", "arrest_status"],
+                    "expected_group_by": "district",
+                    "expected_top_n": 3,
+                    "expected_domestic": False,
+                    "expected_arrest_status": False,
+                    "complexity": "complex"
+                },
+                {
+                    "question": "What are the top 4 wards with domestic homicides in 2022 where arrests were made?",
+                    "expected_tool": "query_homicides_advanced",
+                    "expected_params": ["start_year", "end_year", "group_by", "top_n", "domestic", "arrest_status"],
+                    "expected_group_by": "ward",
+                    "expected_top_n": 4,
+                    "expected_domestic": True,
+                    "expected_arrest_status": True,
+                    "complexity": "complex"
+                }
+            ],
+            "negative_cases": [
+                {
+                    "question": "What is the weather like in Chicago?",
+                    "expected_tool": None,
+                    "expected_params": [],
+                    "complexity": "simple",
+                    "should_not_use_tools": True
+                },
+                {
+                    "question": "Tell me about Chicago's history",
+                    "expected_tool": None,
+                    "expected_params": [],
+                    "complexity": "simple",
+                    "should_not_use_tools": True
+                },
+                {
+                    "question": "What is IUCR?",
+                    "expected_tool": "get_iucr_info",
+                    "expected_params": [],
+                    "complexity": "simple",
+                    "should_not_use_tools": False
+                }
+            ],
+            "year_range_variations": [
+                {
+                    "question": "How many homicides from 2018 through 2020?",
+                    "expected_tool": "query_homicides_advanced",
+                    "expected_params": ["start_year", "end_year"],
+                    "expected_start_year": 2018,
+                    "expected_end_year": 2020,
+                    "complexity": "medium"
+                },
+                {
+                    "question": "Which ward had the most homicides between 2019 and 2023?",
+                    "expected_tool": "query_homicides_advanced",
+                    "expected_params": ["start_year", "end_year", "group_by"],
+                    "expected_group_by": "ward",
+                    "expected_start_year": 2019,
+                    "expected_end_year": 2023,
+                    "complexity": "medium"
+                }
+            ],
+            "synonym_variations": [
+                {
+                    "question": "What community area has the highest number of killings?",
+                    "expected_tool": "query_homicides_advanced",
+                    "expected_params": ["group_by"],
+                    "expected_group_by": "community_area",
+                    "complexity": "medium"
+                },
+                {
+                    "question": "Which police district has the least murders?",
+                    "expected_tool": "query_homicides_advanced",
+                    "expected_params": ["group_by"],
+                    "expected_group_by": "district",
+                    "complexity": "medium"
                 }
             ]
         }
@@ -245,8 +323,38 @@ class LLMPerformanceTester:
                         f"Expected domestic {test_case['expected_domestic']} but got {domestic_value}"
                     )
 
+            # Year range validations
+            if "expected_start_year" in test_case:
+                start_year_value = result["parameters_used"].get("start_year")
+                if start_year_value != test_case["expected_start_year"]:
+                    result["issues"].append(
+                        f"Expected start_year {test_case['expected_start_year']} but got {start_year_value}"
+                    )
+
+            if "expected_end_year" in test_case:
+                end_year_value = result["parameters_used"].get("end_year")
+                if end_year_value != test_case["expected_end_year"]:
+                    result["issues"].append(
+                        f"Expected end_year {test_case['expected_end_year']} but got {end_year_value}"
+                    )
+
+            # Negative case validation: should NOT use tools
+            if test_case.get("should_not_use_tools") and interaction.get("needs_tool_call"):
+                result["issues"].append(
+                    "Model incorrectly requested tool usage for non-homicide question"
+                )
+
             if expected_tool and tool_execution.get("error"):
                 result["issues"].append(f"Tool execution error: {tool_execution.get('error')}")
+
+            # Answer consistency validation
+            if not tool_execution.get("error") and result["tool_called"]:
+                consistency_issues = self._validate_answer_consistency(
+                    final_answer,
+                    tool_execution.get("raw_result"),
+                    test_case
+                )
+                result["issues"].extend(consistency_issues)
 
             result["passed"] = len(result["issues"]) == 0
 
@@ -255,6 +363,55 @@ class LLMPerformanceTester:
             result["response_time"] = time.time() - start_time
 
         return result
+    
+    def _validate_answer_consistency(self, answer: str, tool_result: Any, test_case: Dict[str, Any]) -> List[str]:
+        """Validate that the answer is consistent with the tool result."""
+        issues = []
+        
+        if not tool_result or not isinstance(tool_result, dict):
+            return issues
+        
+        answer_lower = answer.lower()
+        
+        # For group_by queries, check if top result is mentioned in answer
+        if test_case.get("expected_group_by"):
+            primary_breakdown = tool_result.get("primary_breakdown", {})
+            if primary_breakdown and "data" in primary_breakdown:
+                breakdown_data = primary_breakdown["data"]
+                if breakdown_data:
+                    # Get the top item
+                    sorted_items = sorted(breakdown_data.items(), key=lambda x: x[1], reverse=True)
+                    if sorted_items:
+                        top_item, top_count = sorted_items[0]
+                        top_item_str = str(top_item).lower()
+                        
+                        # Check if top item is mentioned in answer
+                        if top_item_str not in answer_lower and top_item not in answer_lower:
+                            issues.append(
+                                f"Answer does not mention the top {test_case['expected_group_by']} '{top_item}' "
+                                f"which had {top_count} cases"
+                            )
+        
+        # For count queries, verify numeric consistency
+        if "total_matches" in tool_result:
+            total_matches = tool_result["total_matches"]
+            # Look for numbers in answer that are way off
+            import re
+            numbers_in_answer = re.findall(r'\b\d+\b', answer)
+            if numbers_in_answer:
+                # Check if the correct total is mentioned somewhere
+                if str(total_matches) not in numbers_in_answer:
+                    # Allow for some flexibility (within 10% or mentioning related stats)
+                    has_close_number = any(
+                        abs(int(num) - total_matches) / max(total_matches, 1) < 0.1
+                        for num in numbers_in_answer if num.isdigit()
+                    )
+                    if not has_close_number and total_matches > 10:
+                        issues.append(
+                            f"Answer mentions numbers {numbers_in_answer} but tool found {total_matches} total matches"
+                        )
+        
+        return issues
     
     def run_all_tests(self) -> Dict[str, Any]:
         """Run tests on all available models."""

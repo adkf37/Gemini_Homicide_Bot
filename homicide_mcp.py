@@ -17,11 +17,227 @@ import argparse
 import mcp
 from mcp import Tool
 
-# Import data fetcher
+# Import data fetcher and base domain
 from chicago_data_fetcher import ChicagoHomicideDataFetcher
+from base_domain import BaseDataDomain
 
-class HomicideDataMCP:
+class HomicideDataMCP(BaseDataDomain):
     """MCP Server for Chicago Homicide Data Analysis."""
+
+    # ------------------------------------------------------------------
+    # BaseDataDomain interface
+    # ------------------------------------------------------------------
+
+    @property
+    def domain_name(self) -> str:
+        return "homicides"
+
+    def get_tool_definitions(self) -> List[Dict[str, Any]]:
+        """Return tool definitions for the LLM prompt."""
+        return [
+            {
+                "name": "query_homicides_advanced",
+                "description": (
+                    "Query homicide data with flexible filtering options. Use this for ALL data analysis "
+                    "queries including: single years, year ranges, geographic filters, location searches, "
+                    "arrest status, domestic cases, and overall statistics. Examples: 'homicides in 2023', "
+                    "'overall statistics', 'homicides from 2015-2019 in ward 3', 'street homicides with arrests'."
+                ),
+                "parameters": {
+                    "start_year": {"type": "integer", "description": "Start year for date range filter (or single year if used alone)"},
+                    "end_year": {"type": "integer", "description": "End year for date range filter"},
+                    "ward": {"type": "integer", "description": "Ward number to filter by (1-50)"},
+                    "district": {"type": "integer", "description": "Police district number to filter by"},
+                    "community_area": {"type": "integer", "description": "Community area number to filter by"},
+                    "arrest_status": {"type": "boolean", "description": "Filter by arrest status: true for arrests made, false for no arrests"},
+                    "domestic": {"type": "boolean", "description": "Filter by domestic violence cases"},
+                    "location_type": {"type": "string", "description": "Filter by location type (e.g., 'STREET', 'APARTMENT', 'RESIDENCE')"},
+                    "group_by": {"type": "string", "description": "Focus results on specific grouping for 'which X had the most' queries: 'ward', 'district', 'community_area', or 'location'"},
+                    "top_n": {"type": "integer", "description": "Number of items to show in breakdowns (default 10)"},
+                },
+                "required": [],
+            },
+            {
+                "name": "get_iucr_info",
+                "description": (
+                    "Get information and explanations about IUCR (Illinois Uniform Crime Reporting) codes. "
+                    "Use this ONLY when users ask about what IUCR means, what specific codes mean, or need "
+                    "educational information about crime classification codes."
+                ),
+                "parameters": {
+                    "iucr_code": {"type": "string", "description": "Specific IUCR code to look up (optional, e.g., '0110'). If not provided, returns overview of IUCR system."},
+                },
+                "required": [],
+            },
+        ]
+
+    def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        """Dispatch to the appropriate query method."""
+        if tool_name == "query_homicides_advanced":
+            return self.query_homicides_advanced(
+                start_year=arguments.get("start_year"),
+                end_year=arguments.get("end_year"),
+                ward=arguments.get("ward"),
+                district=arguments.get("district"),
+                community_area=arguments.get("community_area"),
+                arrest_status=arguments.get("arrest_status"),
+                domestic=arguments.get("domestic"),
+                location_type=arguments.get("location_type"),
+                group_by=arguments.get("group_by"),
+                top_n=arguments.get("top_n", 10),
+                limit=arguments.get("limit", 100),
+            )
+        elif tool_name == "get_iucr_info":
+            return self.get_iucr_info(arguments.get("iucr_code"))
+        return {"error": f"Unknown homicide tool: {tool_name}"}
+
+    def format_result(self, result: Dict[str, Any]) -> str:
+        """Format homicide query results for the LLM."""
+        if "error" in result:
+            return f"❌ Error: {result['error']}"
+
+        try:
+            # Advanced query result
+            if "total_matches" in result and "filters_applied" in result:
+                return self._format_advanced_result(result)
+            # Year query
+            elif "year" in result and "records" in result:
+                return self._format_year_result(result)
+            # Statistics
+            elif "total_homicides" in result:
+                return self._format_statistics_result(result)
+            # Location search
+            elif "query" in result and "records" in result:
+                return self._format_location_result(result)
+            # IUCR specific
+            elif "iucr_code" in result:
+                return self._format_iucr_result(result)
+            # IUCR overview
+            elif "explanation" in result and "unique_codes_count" in result:
+                return self._format_iucr_overview(result)
+            # Fallback
+            return f"📋 **Result:**\n```json\n{json.dumps(result, indent=2)}\n```"
+        except Exception as e:
+            return f"📋 **Raw Result:** {json.dumps(result, indent=2)}\n\n⚠️ Format error: {str(e)}"
+
+    # -- Private formatting helpers ------------------------------------------------
+
+    @staticmethod
+    def _format_advanced_result(result: Dict[str, Any]) -> str:
+        response = "🔍 **Advanced Homicide Query Results**\n"
+        if result["filters_applied"]:
+            response += f"**Filters Applied:** {', '.join(result['filters_applied'])}\n\n"
+        response += "**Summary:**\n"
+        response += f"  Total matches: {result['total_matches']}\n"
+        response += f"  Arrests made: {result['arrest_count']} ({result['arrest_rate']})\n"
+        response += f"  Domestic cases: {result['domestic_count']} ({result['domestic_rate']})\n\n"
+
+        if result.get("primary_breakdown") and result["primary_breakdown"].get("data"):
+            breakdown = result["primary_breakdown"]
+            breakdown_type = breakdown["type"].replace("_", " ").title()
+            response += f"**{breakdown_type} Breakdown (Ranked by Count):**\n"
+            sorted_items = sorted(breakdown["data"].items(), key=lambda x: x[1], reverse=True)
+            for item, count in sorted_items:
+                label = item if breakdown["type"] == "location" else f"{breakdown_type} {item}"
+                response += f"  {label}: {count} homicides\n"
+            response += "\n"
+            if sorted_items:
+                top_item, top_count = sorted_items[0]
+                response += f"**Answer: {breakdown_type} {top_item} had the most with {top_count} homicides.**\n\n"
+        else:
+            if result["year_breakdown"]:
+                response += "**Year Breakdown:**\n"
+                for year, count in sorted(result["year_breakdown"].items()):
+                    response += f"  {year}: {count} homicides\n"
+                response += "\n"
+            if result.get("ward_breakdown"):
+                response += f"**Ward Breakdown (Top {len(result['ward_breakdown'])}):**\n"
+                for ward, count in sorted(result["ward_breakdown"].items(), key=lambda x: x[1], reverse=True):
+                    response += f"  Ward {ward}: {count} homicides\n"
+                response += "\n"
+            if result.get("district_breakdown"):
+                response += f"**District Breakdown (Top {len(result['district_breakdown'])}):**\n"
+                for district, count in sorted(result["district_breakdown"].items(), key=lambda x: x[1], reverse=True):
+                    response += f"  District {district}: {count} homicides\n"
+                response += "\n"
+            if result.get("community_area_breakdown"):
+                response += f"**Community Area Breakdown (Top {len(result['community_area_breakdown'])}):**\n"
+                for ca, count in sorted(result["community_area_breakdown"].items(), key=lambda x: x[1], reverse=True):
+                    response += f"  Community Area {ca}: {count} homicides\n"
+                response += "\n"
+
+        if result.get("top_locations"):
+            response += "**Top Locations:**\n"
+            for location, count in list(result["top_locations"].items())[:3]:
+                response += f"  {location}: {count} cases\n"
+            response += "\n"
+
+        if result.get("sample_records"):
+            response += f"**Sample Records ({len(result['sample_records'])}):**\n"
+            for i, rec in enumerate(result["sample_records"][:3], 1):
+                response += f"{i}. **Case {rec['case_number']}** ({rec['year']})\n"
+                response += f"   Ward: {rec['ward']}, District: {rec['district']}\n"
+                response += f"   Location: {rec['block']}\n"
+                response += f"   Arrest: {'Yes' if rec['arrest'] else 'No'}\n\n"
+        return response
+
+    @staticmethod
+    def _format_year_result(result: Dict[str, Any]) -> str:
+        response = f"📅 **Homicides in {result['year']}**\n"
+        response += f"Total records: {result['total_records']}\n"
+        response += f"Showing: {result['returned_records']} records\n\n"
+        for i, rec in enumerate(result["records"][:5], 1):
+            response += f"{i}. **Case {rec['case_number']}**\n"
+            response += f"   Date: {rec['date']}\n"
+            response += f"   Location: {rec['block']}\n"
+            response += f"   Description: {rec['description']}\n"
+            response += f"   Arrest: {'Yes' if rec['arrest'] else 'No'}\n\n"
+        if result["returned_records"] > 5:
+            response += f"... and {result['returned_records'] - 5} more records\n"
+        return response
+
+    @staticmethod
+    def _format_statistics_result(result: Dict[str, Any]) -> str:
+        response = "📊 **Homicide Statistics**\n"
+        response += f"Total homicides: {result['total_homicides']}\n"
+        response += f"Year range: {result['year_range']}\n"
+        response += f"Arrests made: {result['arrests_made']} ({result['arrest_rate']})\n"
+        response += f"Domestic cases: {result['domestic_cases']} ({result['domestic_rate']})\n\n"
+        if "top_districts" in result:
+            response += "**Top Districts:**\n"
+            for district, count in list(result["top_districts"].items())[:3]:
+                response += f"  District {district}: {count} cases\n"
+        return response
+
+    @staticmethod
+    def _format_location_result(result: Dict[str, Any]) -> str:
+        response = f"🔍 **Location Search: '{result['query']}'**\n"
+        response += f"Total matches: {result['total_matches']}\n"
+        response += f"Showing: {result['returned_records']} records\n\n"
+        for i, rec in enumerate(result["records"][:3], 1):
+            response += f"{i}. **Case {rec['case_number']}** ({rec['year']})\n"
+            response += f"   Location: {rec['block']}\n"
+            response += f"   Type: {rec['location_description']}\n"
+            response += f"   Arrest: {'Yes' if rec['arrest'] else 'No'}\n\n"
+        return response
+
+    @staticmethod
+    def _format_iucr_result(result: Dict[str, Any]) -> str:
+        response = f"📋 **IUCR Code: {result['iucr_code']}**\n"
+        response += f"Type: {result['primary_type']}\n"
+        response += f"Description: {result['description']}\n"
+        response += f"Total cases: {result['total_cases']}\n\n"
+        response += result["explanation"]
+        return response
+
+    @staticmethod
+    def _format_iucr_overview(result: Dict[str, Any]) -> str:
+        response = "📋 **IUCR System Overview**\n"
+        response += f"{result['explanation']}\n\n"
+        response += f"Unique codes in dataset: {result['unique_codes_count']}\n"
+        if "sample_codes" in result:
+            response += f"Most common codes: {', '.join(result['sample_codes'])}\n"
+        return response
 
     def __init__(
         self,
@@ -39,8 +255,9 @@ class HomicideDataMCP:
     def load_data(
         self,
         preloaded_df: Optional[pd.DataFrame] = None,
-        force_refresh: bool = False
-    ):
+        force_refresh: bool = False,
+        **kwargs,
+    ) -> bool:
         """Load homicide data from a preloaded frame, API fetcher, or CSV."""
         try:
             if preloaded_df is not None:

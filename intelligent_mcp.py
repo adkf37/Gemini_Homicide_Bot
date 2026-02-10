@@ -1,44 +1,30 @@
 import json
 import re
 import time
-from typing import Dict, Any, Optional, Union
+from typing import Dict, Any, Optional, Union, List
 import mcp_integration
 
 class IntelligentMCPHandler:
     """Handles intelligent MCP tool calling based on natural language questions."""
     
     def __init__(self):
-        self.tools = [
-            {
-                "name": "query_homicides_advanced",
-                "description": "Query homicide data with flexible filtering options. Use this for ALL data analysis queries including: single years, year ranges, geographic filters, location searches, arrest status, domestic cases, and overall statistics. Examples: 'homicides in 2023', 'overall statistics', 'homicides from 2015-2019 in ward 3', 'street homicides with arrests'.",
-                "parameters": {
-                    "start_year": {"type": "integer", "description": "Start year for date range filter (or single year if used alone)"},
-                    "end_year": {"type": "integer", "description": "End year for date range filter"},
-                    "ward": {"type": "integer", "description": "Ward number to filter by (1-50)"},
-                    "district": {"type": "integer", "description": "Police district number to filter by"},
-                    "community_area": {"type": "integer", "description": "Community area number to filter by"},
-                    "arrest_status": {"type": "boolean", "description": "Filter by arrest status: true for arrests made, false for no arrests"},
-                    "domestic": {"type": "boolean", "description": "Filter by domestic violence cases"},
-                    "location_type": {"type": "string", "description": "Filter by location type (e.g., 'STREET', 'APARTMENT', 'RESIDENCE')"},
-                    "group_by": {"type": "string", "description": "Focus results on specific grouping for 'which X had the most' queries: 'ward', 'district', 'community_area', or 'location'"},
-                    "top_n": {"type": "integer", "description": "Number of items to show in breakdowns (default 10)"}
-                },
-                "required": []
-            },
-            {
-                "name": "get_iucr_info",
-                "description": "Get information and explanations about IUCR (Illinois Uniform Crime Reporting) codes. Use this ONLY when users ask about what IUCR means, what specific codes mean, or need educational information about crime classification codes.",
-                "parameters": {
-                    "iucr_code": {"type": "string", "description": "Specific IUCR code to look up (optional, e.g., '0110'). If not provided, returns overview of IUCR system."}
-                },
-                "required": []
-            }
-        ]
+        # Tools are now fetched dynamically from the domain registry.
+        # The list below is a cached copy refreshed on each call to get_tools().
+        self._cached_tools: List[Dict[str, Any]] = []
     
     def get_tools(self) -> list:
-        """Get available tools for the LLM."""
-        return self.tools
+        """Get available tools from all registered domains."""
+        mcp_inst = getattr(mcp_integration, "mcp_integration", None)
+        if mcp_inst is not None:
+            self._cached_tools = mcp_inst.get_all_tool_definitions()
+        return self._cached_tools
+
+    @property
+    def tools(self) -> list:
+        """Backward-compatible property used by execute_tool_call."""
+        if not self._cached_tools:
+            return self.get_tools()
+        return self._cached_tools
     
     def parse_tool_call(self, response_content: str) -> Optional[Dict[str, Any]]:
         """Parse a tool call from the LLM response."""
@@ -160,7 +146,7 @@ class IntelligentMCPHandler:
                 execution_summary["error"] = result["error"]
                 execution_summary["formatted_result"] = f"❌ {result['error']}"
             else:
-                execution_summary["formatted_result"] = mcp_instance.format_tool_result(result)
+                execution_summary["formatted_result"] = mcp_instance.format_tool_result(result, tool_name=tool_name)
 
         except Exception as e:
             execution_summary["error"] = str(e)
@@ -221,7 +207,7 @@ class IntelligentMCPHandler:
             return interaction_trace if include_trace else tool_execution.get("formatted_result")
 
         # Now ask the LLM to formulate a final answer based on the tool result
-        follow_up_prompt = f"""Based on this data about homicides:
+        follow_up_prompt = f"""Based on this data:
 
 {tool_execution['formatted_result']}
 

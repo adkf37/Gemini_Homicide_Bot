@@ -14,6 +14,8 @@ from pathlib import Path
 from base_domain import BaseDataDomain
 from homicide_mcp import HomicideDataMCP
 from chicago_data_fetcher import ChicagoHomicideDataFetcher
+from census_mcp import CensusDataMCP
+from socioeconomic_mcp import SocioeconomicDataMCP
 
 
 class MCPIntegration:
@@ -44,9 +46,9 @@ class MCPIntegration:
         """Initialize MCP tools and data sources."""
         try:
             self._init_homicide_domain()
-            # Future domains will be registered here:
-            # self._init_census_domain()
-            # self._init_socioeconomic_domain()
+            self._init_census_domain()
+            self._init_socioeconomic_domain()
+            # Future domains:
             # self._init_property_domain()
             total_tools = len(self._tool_domain_map)
             print(f"✅ MCP initialized with {total_tools} tools across {len(self.domains)} domain(s)")
@@ -71,6 +73,22 @@ class MCPIntegration:
                 return
 
         self.register_domain(domain)
+
+    def _init_census_domain(self):
+        """Bootstrap the census/demographics domain."""
+        try:
+            domain = CensusDataMCP()
+            self.register_domain(domain)
+        except Exception as e:
+            print(f"⚠️  Unable to load census domain: {e}")
+
+    def _init_socioeconomic_domain(self):
+        """Bootstrap the socioeconomic indicators domain."""
+        try:
+            domain = SocioeconomicDataMCP()
+            self.register_domain(domain)
+        except Exception as e:
+            print(f"⚠️  Unable to load socioeconomic domain: {e}")
 
     # ------------------------------------------------------------------
     # Backward-compatible helpers

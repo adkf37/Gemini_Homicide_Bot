@@ -1,12 +1,19 @@
-"""Central registry for system prompt variants used by LlamaClient."""
+"""Central registry for system prompt variants used by LlamaClient.
 
-from typing import Any, Dict, List
+Supports multi-domain tool calling (homicides, census, socioeconomic,
+property sales) with iterative multi-tool orchestration — the LLM can
+request up to 4 sequential tool calls before synthesizing a final answer.
+"""
+
+from typing import Any, Dict, List, Optional
 import json
 
 PROMPT_VARIANTS: Dict[str, Dict[str, Any]] = {
     "tool_use_v1": {
         "template": (
-            "You are a data analyst assistant for Chicago homicide data.\n"
+            "You are a multi-domain data analyst for Chicago.\n"
+            "You have access to tools covering homicides, census demographics, "
+            "socioeconomic indicators, and property sales.\n"
             "Use the provided tools to ground your answers in factual statistics.\n\n"
             "Available tools:\n"
             "{tool_summaries}\n\n"
@@ -14,16 +21,24 @@ PROMPT_VARIANTS: Dict[str, Dict[str, Any]] = {
             "{guidelines}\n\n"
             "When a tool is required respond ONLY with a JSON object prefixed by 'TOOL_CALL:' on the same line.\n"
             "Format: TOOL_CALL: {{\"name\": \"tool_name\", \"arguments\": {{...}}}}\n\n"
+            "{prior_results_section}"
             "Examples:\n"
             "{examples}\n\n"
-            "If a tool is not required, answer normally."
+            "If no more tools are needed, answer the question directly using any data already provided."
         ),
         "guidelines": [
-            "Prefer `query_homicides_advanced` for any question about counts, trends, rankings, or filtered views.",
-            "Use `get_iucr_info` strictly for IUCR code explanations or taxonomy questions.",
-            "Always include `start_year`/`end_year` when a user references a specific year or range.",
+            "You can call tools iteratively — after each tool result you will be prompted again. Call another tool if more data is needed to fully answer the question.",
+            "Use `query_homicides_advanced` for homicide counts, trends, rankings, or filtered views.",
+            "Use `get_iucr_info` for IUCR code explanations or taxonomy questions.",
+            "Use `query_census_demographics` for population, income, race, or age data for community areas.",
+            "Use `query_socioeconomic` for poverty rates, unemployment, crowded housing, dependency, or hardship indices.",
+            "Use `query_property_values` for home prices, sales volume, and property value trends (township-level data).",
+            "For cross-domain questions (e.g., 'homicide rate per capita'), call multiple tools in sequence: first homicides, then census for population, then synthesize.",
+            "Do NOT repeat a tool call with the same arguments — the data is already available in the prior results.",
+            "Always include `start_year`/`end_year` when a user references a specific year for homicide queries.",
             "For 'which/what had the most' style questions set `group_by` to ward, district, community_area, or location as appropriate.",
-            "Supply integers for numeric parameters and `true`/`false` for booleans."
+            "Supply integers for numeric parameters and `true`/`false` for booleans.",
+            "When you have enough data to answer, respond with your analysis — do NOT call another tool."
         ],
         "examples": [
             {
@@ -32,49 +47,72 @@ PROMPT_VARIANTS: Dict[str, Dict[str, Any]] = {
                 "arguments": {"start_year": 2023, "end_year": 2023}
             },
             {
-                "question": "Which district had the most homicides from 2020-2022?",
-                "tool": "query_homicides_advanced",
-                "arguments": {"start_year": 2020, "end_year": 2022, "group_by": "district"}
+                "question": "What is the population of Austin?",
+                "tool": "query_census_demographics",
+                "arguments": {"community_area": "Austin", "metric": "population"}
             },
             {
-                "question": "What does IUCR mean?",
-                "tool": "get_iucr_info",
-                "arguments": {}
+                "question": "Which areas have the highest hardship index?",
+                "tool": "query_socioeconomic",
+                "arguments": {"metric": "hardship", "top_n": 5}
+            },
+            {
+                "question": "What are average home prices in Lincoln Park?",
+                "tool": "query_property_values",
+                "arguments": {"community_area": "Lincoln Park", "metric": "avg_price"}
             }
         ]
     },
     "tool_use_reasoned": {
         "template": (
-            "You are an expert homicide data analyst.\n"
+            "You are an expert multi-domain data analyst for Chicago.\n"
+            "You have access to tools covering homicides, census demographics, "
+            "socioeconomic indicators, and property sales.\n"
             "Before selecting a tool, briefly reflect on the user's goal and required parameters.\n"
-            "Keep the reflection concise (one sentence) and then respond with the tool call if needed.\n\n"
+            "Keep the reflection concise (one sentence) then respond with the tool call if needed.\n\n"
             "Available tools:\n"
             "{tool_summaries}\n\n"
             "Reasoning and tool usage rules:\n"
             "{guidelines}\n\n"
             "When a tool is required respond ONLY with a JSON object prefixed by 'TOOL_CALL:' on the same line.\n"
             "Format: TOOL_CALL: {{\"name\": \"tool_name\", \"arguments\": {{...}}}}\n\n"
+            "{prior_results_section}"
             "Examples:\n"
             "{examples}\n\n"
-            "If a tool is not required, answer normally with a concise explanation."
+            "If no more tools are needed, answer the question directly using any data already provided."
         ),
         "guidelines": [
-            "State the reasoning for the chosen tool before the tool call (e.g., 'Need year-filtered homicide counts so calling ...').",
-            "Map user questions about counts or rankings to `query_homicides_advanced` with appropriate filters.",
-            "Use `group_by` whenever the user asks for \"which\" entity had the most or for top-N rankings.",
-            "Use `get_iucr_info` for definitional IUCR questions and avoid mixing it with quantitative analysis.",
-            "Return to natural language answers after executing the tool by summarizing the results."
+            "You can call tools iteratively — after each tool result you will be prompted again. Call another tool only if you still need more data.",
+            "State the reasoning for the chosen tool before the TOOL_CALL: line.",
+            "Map user questions about homicide counts or rankings to `query_homicides_advanced`.",
+            "Map demographics/population questions to `query_census_demographics`.",
+            "Map poverty/hardship/socioeconomic questions to `query_socioeconomic`.",
+            "Map home price/property value questions to `query_property_values`.",
+            "For cross-domain questions, call one tool at a time — you will get the result and can call another.",
+            "Do NOT repeat a tool call with identical arguments.",
+            "After executing tool(s), synthesize a clear answer by combining all results.",
+            "Use `group_by` whenever the user asks for \"which\" entity had the most or for top-N rankings."
         ],
         "examples": [
             {
-                "reasoning": "Need filtered stats for 2021, use query_homicides_advanced.",
+                "reasoning": "Need filtered homicide stats for 2023.",
                 "tool": "query_homicides_advanced",
-                "arguments": {"start_year": 2021, "end_year": 2021}
+                "arguments": {"start_year": 2023, "end_year": 2023}
             },
             {
-                "reasoning": "User wants IUCR explanation, call get_iucr_info.",
-                "tool": "get_iucr_info",
-                "arguments": {}
+                "reasoning": "Need population to compute per-capita rate.",
+                "tool": "query_census_demographics",
+                "arguments": {"community_area": "Austin", "metric": "population"}
+            },
+            {
+                "reasoning": "User wants socioeconomic hardship ranking.",
+                "tool": "query_socioeconomic",
+                "arguments": {"metric": "hardship", "top_n": 5}
+            },
+            {
+                "reasoning": "User asks about property values in area.",
+                "tool": "query_property_values",
+                "arguments": {"community_area": "Lincoln Park", "metric": "avg_price"}
             }
         ]
     }
@@ -126,8 +164,23 @@ def _format_examples(examples: List[Any]) -> List[str]:
     return formatted
 
 
-def build_tool_system_prompt(variant: str, tools: List[Dict[str, Any]]) -> str:
-    """Build a system prompt for tool usage based on a registered variant."""
+def build_tool_system_prompt(
+    variant: str,
+    tools: List[Dict[str, Any]],
+    prior_tool_results: Optional[List[Dict[str, str]]] = None,
+) -> str:
+    """Build a system prompt for tool usage based on a registered variant.
+
+    Parameters
+    ----------
+    variant : str
+        Name of the prompt variant (e.g. ``"tool_use_reasoned"``).
+    tools : list[dict]
+        Tool definition dicts (name, description, parameters…).
+    prior_tool_results : list[dict] | None
+        Results from previous tool calls in this orchestration loop.
+        Each dict has ``tool_name`` and ``formatted_result`` keys.
+    """
     variant_config = PROMPT_VARIANTS.get(variant, PROMPT_VARIANTS["tool_use_v1"])
 
     tool_lines = [_summarize_tool(tool) for tool in tools] if tools else ["- No tools available"]
@@ -140,9 +193,24 @@ def build_tool_system_prompt(variant: str, tools: List[Dict[str, Any]]) -> str:
     example_lines = _format_examples(example_entries)
     examples_section = "\n".join(example_lines) if example_lines else "(No examples configured)"
 
+    # Build prior results section (multi-tool loop context)
+    prior_results_section = ""
+    if prior_tool_results:
+        parts = ["You have already called the following tools and received these results:\n"]
+        for idx, pr in enumerate(prior_tool_results, 1):
+            parts.append(f"--- Tool Call {idx}: {pr['tool_name']} ---")
+            parts.append(pr["formatted_result"])
+            parts.append("")
+        parts.append(
+            "If you need additional data from a DIFFERENT tool, emit another TOOL_CALL.\n"
+            "If you have enough data to answer, respond directly — do NOT emit TOOL_CALL.\n\n"
+        )
+        prior_results_section = "\n".join(parts)
+
     template = variant_config.get("template", PROMPT_VARIANTS["tool_use_v1"]["template"])
     return template.format(
         tool_summaries=tool_section,
         guidelines=guidelines_section,
-        examples=examples_section
+        examples=examples_section,
+        prior_results_section=prior_results_section,
     )

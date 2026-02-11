@@ -30,12 +30,26 @@ class LlamaClient:
 
     def generate_with_tools(self, prompt: str, tools: List[Dict[str, Any]],
                             temperature: Optional[float] = None,
-                            max_tokens: Optional[int] = None) -> Dict[str, Any]:
-        """Generate response with tool calling capability."""
+                            max_tokens: Optional[int] = None,
+                            prior_tool_results: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
+        """Generate response with tool calling capability.
+
+        Parameters
+        ----------
+        prior_tool_results : list[dict] | None
+            Results from earlier iterations of the multi-tool loop.
+            Each dict has ``tool_name`` and ``formatted_result`` keys.
+            Passed through to ``build_tool_system_prompt`` so the LLM
+            knows what data it already has.
+        """
         temperature = temperature or self.config.get('model.temperature', 0.7)
         max_tokens = max_tokens or self.config.get('model.max_tokens', 2048)
 
-        system_prompt = build_tool_system_prompt(self.system_prompt_variant, tools)
+        system_prompt = build_tool_system_prompt(
+            self.system_prompt_variant,
+            tools,
+            prior_tool_results=prior_tool_results,
+        )
         composed_prompt = f"{system_prompt}\n\nUser question: {prompt}"
 
         try:

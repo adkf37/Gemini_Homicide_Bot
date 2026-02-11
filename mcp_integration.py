@@ -16,6 +16,7 @@ from homicide_mcp import HomicideDataMCP
 from chicago_data_fetcher import ChicagoHomicideDataFetcher
 from census_mcp import CensusDataMCP
 from socioeconomic_mcp import SocioeconomicDataMCP
+from property_mcp import PropertyDataMCP
 
 
 class MCPIntegration:
@@ -48,8 +49,7 @@ class MCPIntegration:
             self._init_homicide_domain()
             self._init_census_domain()
             self._init_socioeconomic_domain()
-            # Future domains:
-            # self._init_property_domain()
+            self._init_property_domain()
             total_tools = len(self._tool_domain_map)
             print(f"✅ MCP initialized with {total_tools} tools across {len(self.domains)} domain(s)")
         except Exception as e:
@@ -89,6 +89,14 @@ class MCPIntegration:
             self.register_domain(domain)
         except Exception as e:
             print(f"⚠️  Unable to load socioeconomic domain: {e}")
+
+    def _init_property_domain(self):
+        """Bootstrap the property sales domain."""
+        try:
+            domain = PropertyDataMCP()
+            self.register_domain(domain)
+        except Exception as e:
+            print(f"⚠️  Unable to load property domain: {e}")
 
     # ------------------------------------------------------------------
     # Backward-compatible helpers

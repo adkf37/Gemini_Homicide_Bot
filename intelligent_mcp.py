@@ -154,72 +154,172 @@ class IntelligentMCPHandler:
 
         return execution_summary
 
+    # ------------------------------------------------------------------
+    # Multi-tool orchestration constants
+    # ------------------------------------------------------------------
+    MAX_TOOL_ITERATIONS = 4
+    TOTAL_TIMEOUT_SECONDS = 90
+
     def handle_question_with_tools(
         self,
         question: str,
         llama_client,
         include_trace: bool = False
     ) -> Union[str, Dict[str, Any]]:
-        """Handle a question that might require tool calling."""
-        print("🔍 Generating response with tool calling capability...")
+        """Handle a question that might require one or more tool calls.
 
-        # First, ask the LLM if it needs to use tools
-        response = llama_client.generate_with_tools(question, self.tools)
-        print(f"🤖 LLM Response: {response.get('content', 'No content')[:200]}...")
-        print(f"🔧 Needs tool call: {response.get('needs_tool_call', False)}")
+        The LLM is called in a loop: at each iteration it can either emit a
+        ``TOOL_CALL:`` to fetch more data, or answer directly if it already
+        has enough information.  The loop exits when:
+        - The LLM responds without a TOOL_CALL (final answer)
+        - The maximum iteration count is reached
+        - The total wall-clock timeout is exceeded
+        - A duplicate tool call (same name+args) is detected
+        """
+        print("🔍 Generating response with multi-tool calling capability...")
 
         interaction_trace: Dict[str, Any] = {
             "question": question,
-            "initial_model_response": response,
-            "needs_tool_call": response.get("needs_tool_call", False),
-            "tool_call": None,
-            "tool_execution": None,
-            "final_answer": None
+            "iterations": [],
+            "final_answer": None,
         }
 
-        if not response.get("needs_tool_call", False):
-            # No tool call needed, return the direct response
-            print("ℹ️  No tool call needed, returning direct response")
-            interaction_trace["final_answer"] = response["content"]
-            return interaction_trace if include_trace else response["content"]
+        # Accumulate prior tool results across iterations
+        prior_tool_results: List[Dict[str, str]] = []
+        # Track (tool_name, sorted_args_json) to detect duplicates
+        seen_calls: set = set()
+        loop_start = time.perf_counter()
 
-        # Parse and execute tool call
-        print("🔍 Parsing tool call from response...")
-        tool_call = self.parse_tool_call(response["content"])
-        if not tool_call:
-            error_msg = f"❌ Could not parse tool call from response: {response['content']}"
-            print(error_msg)
-            interaction_trace["final_answer"] = error_msg
-            return interaction_trace if include_trace else error_msg
+        for iteration in range(1, self.MAX_TOOL_ITERATIONS + 1):
+            elapsed = time.perf_counter() - loop_start
+            if elapsed > self.TOTAL_TIMEOUT_SECONDS:
+                timeout_msg = f"⏱️ Multi-tool timeout ({self.TOTAL_TIMEOUT_SECONDS}s) reached after {iteration - 1} tool call(s)."
+                print(timeout_msg)
+                interaction_trace["final_answer"] = self._synthesize_from_accumulated(
+                    question, prior_tool_results, llama_client, timeout_msg
+                )
+                return interaction_trace if include_trace else interaction_trace["final_answer"]
 
-        print(f"🔧 Calling tool: {tool_call['name']} with args: {tool_call.get('arguments', {})}")
-        interaction_trace["tool_call"] = tool_call
+            print(f"\n--- Iteration {iteration}/{self.MAX_TOOL_ITERATIONS} ---")
 
-        # Execute the tool
-        tool_start = time.perf_counter()
-        tool_execution = self.execute_tool_call(tool_call)
-        tool_execution["latency_seconds"] = time.perf_counter() - tool_start
-        interaction_trace["tool_execution"] = tool_execution
-        print(f"📊 Tool result (first 200 chars): {str(tool_execution.get('formatted_result', ''))[:200]}...")
+            # Ask the LLM (with accumulated prior results for iterations > 1)
+            response = llama_client.generate_with_tools(
+                question,
+                self.tools,
+                prior_tool_results=prior_tool_results or None,
+            )
+            content = response.get("content", "")
+            needs_tool = response.get("needs_tool_call", False)
 
-        if tool_execution.get("error"):
-            interaction_trace["final_answer"] = tool_execution.get("formatted_result")
-            return interaction_trace if include_trace else tool_execution.get("formatted_result")
+            iter_record: Dict[str, Any] = {
+                "iteration": iteration,
+                "model_response": content[:500],
+                "needs_tool_call": needs_tool,
+                "tool_call": None,
+                "tool_execution": None,
+            }
 
-        # Now ask the LLM to formulate a final answer based on the tool result
-        follow_up_prompt = f"""Based on this data:
+            print(f"🤖 LLM Response (iter {iteration}): {content[:200]}...")
+            print(f"🔧 Needs tool call: {needs_tool}")
 
-{tool_execution['formatted_result']}
+            if not needs_tool:
+                # LLM has answered — we're done
+                print(f"✅ LLM answered directly on iteration {iteration}")
+                iter_record["final"] = True
+                interaction_trace["iterations"].append(iter_record)
+                interaction_trace["final_answer"] = content
+                return interaction_trace if include_trace else content
 
-Please answer the original question: "{question}"
+            # Parse the tool call
+            tool_call = self.parse_tool_call(content)
+            if not tool_call:
+                error_msg = f"❌ Could not parse tool call from response (iter {iteration}): {content[:200]}"
+                print(error_msg)
+                iter_record["error"] = error_msg
+                interaction_trace["iterations"].append(iter_record)
+                # If we have prior results, try to synthesize anyway
+                if prior_tool_results:
+                    interaction_trace["final_answer"] = self._synthesize_from_accumulated(
+                        question, prior_tool_results, llama_client, "Parse error on follow-up call"
+                    )
+                else:
+                    interaction_trace["final_answer"] = error_msg
+                return interaction_trace if include_trace else interaction_trace["final_answer"]
 
-Provide a clear, informative answer based on the data."""
+            iter_record["tool_call"] = tool_call
 
-        print("🔍 Generating final response based on tool result...")
-        final_response = llama_client.generate(follow_up_prompt)
-        print("✅ Final response generated")
-        interaction_trace["final_answer"] = final_response
-        return interaction_trace if include_trace else final_response
+            # Dedup check
+            call_key = (tool_call["name"], json.dumps(tool_call.get("arguments", {}), sort_keys=True))
+            if call_key in seen_calls:
+                print(f"⚠️ Duplicate tool call detected: {tool_call['name']} — stopping loop")
+                interaction_trace["iterations"].append(iter_record)
+                interaction_trace["final_answer"] = self._synthesize_from_accumulated(
+                    question, prior_tool_results, llama_client, "Duplicate tool call detected"
+                )
+                return interaction_trace if include_trace else interaction_trace["final_answer"]
+            seen_calls.add(call_key)
+
+            # Execute the tool
+            print(f"🔧 Calling tool: {tool_call['name']} with args: {tool_call.get('arguments', {})}")
+            tool_start = time.perf_counter()
+            tool_execution = self.execute_tool_call(tool_call)
+            tool_execution["latency_seconds"] = time.perf_counter() - tool_start
+            iter_record["tool_execution"] = tool_execution
+            interaction_trace["iterations"].append(iter_record)
+
+            formatted = tool_execution.get("formatted_result", "")
+            print(f"📊 Tool result (first 200 chars): {str(formatted)[:200]}...")
+
+            if tool_execution.get("error"):
+                # Tool error is non-fatal; accumulate the error and let LLM continue
+                prior_tool_results.append({
+                    "tool_name": tool_call["name"],
+                    "formatted_result": f"Error: {tool_execution['error']}",
+                })
+                continue
+
+            # Accumulate successful result
+            prior_tool_results.append({
+                "tool_name": tool_call["name"],
+                "formatted_result": formatted,
+            })
+
+        # Exhausted max iterations — synthesize from what we have
+        print(f"⚠️ Reached max iterations ({self.MAX_TOOL_ITERATIONS})")
+        interaction_trace["final_answer"] = self._synthesize_from_accumulated(
+            question, prior_tool_results, llama_client, "Max iterations reached"
+        )
+        return interaction_trace if include_trace else interaction_trace["final_answer"]
+
+    # ------------------------------------------------------------------
+    # Synthesis helper
+    # ------------------------------------------------------------------
+
+    def _synthesize_from_accumulated(
+        self,
+        question: str,
+        prior_tool_results: List[Dict[str, str]],
+        llama_client,
+        reason: str,
+    ) -> str:
+        """Ask the LLM to synthesize a final answer from accumulated tool results."""
+        if not prior_tool_results:
+            return f"❌ No tool results to synthesize ({reason})"
+
+        data_sections = []
+        for pr in prior_tool_results:
+            data_sections.append(f"--- {pr['tool_name']} ---\n{pr['formatted_result']}")
+        combined_data = "\n\n".join(data_sections)
+
+        follow_up = (
+            f"Based on the following data from multiple tools:\n\n"
+            f"{combined_data}\n\n"
+            f"Please answer the original question: \"{question}\"\n\n"
+            f"Provide a clear, informative answer combining all available data. "
+            f"If some data is missing or approximate, note that."
+        )
+        print(f"🔍 Synthesizing final answer from {len(prior_tool_results)} tool result(s) ({reason})...")
+        return llama_client.generate(follow_up)
 
 # Global instance
 intelligent_mcp = IntelligentMCPHandler()

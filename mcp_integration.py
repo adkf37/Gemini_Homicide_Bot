@@ -17,6 +17,7 @@ from chicago_data_fetcher import ChicagoHomicideDataFetcher
 from census_mcp import CensusDataMCP
 from socioeconomic_mcp import SocioeconomicDataMCP
 from property_mcp import PropertyDataMCP
+from cross_domain_mcp import CrossDomainAnalysisMCP
 
 
 class MCPIntegration:
@@ -50,6 +51,7 @@ class MCPIntegration:
             self._init_census_domain()
             self._init_socioeconomic_domain()
             self._init_property_domain()
+            self._init_cross_domain_analysis()
             total_tools = len(self._tool_domain_map)
             print(f"✅ MCP initialized with {total_tools} tools across {len(self.domains)} domain(s)")
         except Exception as e:
@@ -97,6 +99,14 @@ class MCPIntegration:
             self.register_domain(domain)
         except Exception as e:
             print(f"⚠️  Unable to load property domain: {e}")
+
+    def _init_cross_domain_analysis(self):
+        """Bootstrap deterministic operators that join registered domains."""
+        try:
+            domain = CrossDomainAnalysisMCP(self.domains)
+            self.register_domain(domain)
+        except Exception as e:
+            print(f"⚠️  Unable to load cross-domain analysis domain: {e}")
 
     # ------------------------------------------------------------------
     # Backward-compatible helpers

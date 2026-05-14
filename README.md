@@ -1,20 +1,24 @@
-# Gemini LLM with MCP Tools for Homicide Data Analysis
+# Gemini MCP Tools for Chicago Homicide and Public Data Analysis
 
-This project integrates Google's Gemini 1.5 Pro with **Model Context Protocol (MCP)** tools for intelligent querying of homicide data. The system allows users to ask natural language questions about crime statistics and automatically calls appropriate data analysis tools.
+This project integrates Google's Gemini API with **Model Context Protocol (MCP)** tools for deterministic analysis of Chicago homicide, census, socioeconomic, and property data. The default model in `config.yaml` is `gemini-2.5-flash-lite`; the model can be changed without changing the MCP tool layer.
 
 ## 🚀 Features
 
 - **Intelligent Tool Calling**: Ask natural questions like "What location had the most homicides?" and the LLM automatically calls the right tools
-- **MCP Integration**: Uses Model Context Protocol for structured tool calling and data access  
+- **MCP Integration**: Uses Model Context Protocol-style schemas for structured tool calling and data access
 - **Homicide Data Analysis**: Comprehensive analysis of homicide records from 2001 to present
-- **Gemini Pro Integration**: Uses Google's Gemini 1.5 Pro API for higher-quality responses
+- **Cross-Domain Operators**: Deterministic joins for homicide rates per 100,000 residents, homicide concentration versus socioeconomic indicators, and district trend comparisons
+- **Gemini Integration**: Uses Google's Gemini API for natural-language planning and answer synthesis
 - **Interactive CLI**: User-friendly command-line interface with helpful commands
 - **Robust Parsing**: Advanced JSON parsing for reliable tool call extraction
-- **Rich Data Visualization**: Formatted output with statistics, trends, and insights
+- **Traceable Tool Use**: Per-iteration traces plus top-level summaries for web reporting and evaluation
 
 ## 🎯 What You Can Ask
 
 The system can intelligently answer questions like:
+- **"Which community areas had the highest homicide rate per 100,000 in 2023?"** -> Joins homicides to census population
+- **"Where are domestic homicides concentrated relative to hardship index?"** -> Joins homicides to socioeconomic indicators
+- **"Which districts changed most from 2020-2021 to 2022-2023?"** -> Compares district-period trends
 - **"What location had the most homicides?"** → Automatically gets overall statistics
 - **"How many homicides were there in 2023?"** → Calls year-specific data tool
 - **"Find homicides on Michigan Avenue"** → Searches by location
@@ -24,7 +28,7 @@ The system can intelligently answer questions like:
 ## 🛠️ Quick Start
 
 ### 1. Enable Gemini API Access
-Create a Google AI Studio project and generate an API key with access to Gemini 1.5 Pro.
+Create a Google AI Studio project and generate an API key with access to the Gemini model configured in `config.yaml`.
 
 ### 2. Set Your API Key
 ```bash
@@ -69,8 +73,9 @@ Then open <http://localhost:8000> to start chatting. Use the toggle in the foote
 ### Core Files
 - **`main.py`** - Main application with interactive CLI and MCP integration
 - **`intelligent_mcp.py`** - Intelligent MCP handler for tool calling and response parsing
-- **`mcp_integration.py`** - MCP protocol implementation and tool definitions
+- **`mcp_integration.py`** - MCP domain registry and tool dispatch
 - **`homicide_mcp.py`** - Homicide data handler and analysis functions
+- **`cross_domain_mcp.py`** - Joined homicide/census/socioeconomic trend and rate operators
 - **`llama_client.py`** - Gemini client with tool calling capabilities
 
 ### Configuration & Setup
@@ -80,11 +85,11 @@ Then open <http://localhost:8000> to start chatting. Use the toggle in the foote
 - **`setup.py`** / **`setup.ps1`** - Setup scripts
 
 ### Data & Testing
-- **`knowledge_base/`** - Homicide data and schema files
+- **`knowledge_base/`** - Source datasets, schema files, and community-area lookup data
   - `Homicides_2001_to_present.csv` - Main dataset (12,657+ records)
   - `homicides_schema.md` - Data schema documentation
 - **`test_*.py`** - Test scripts for MCP functionality
-- **`data/chroma_db/`** - Vector database storage (legacy from RAG version)
+- **`data/cache/`** - Cached structured public-data fetches
 
 ## 🔧 Available MCP Tools
 
@@ -92,10 +97,15 @@ The system provides these intelligent data analysis tools:
 
 | Tool | Purpose | Example Question |
 |------|---------|------------------|
-| **`get_homicide_statistics`** | Overall stats, trends, top locations | "What location had the most homicides?" |
-| **`get_homicides_by_year`** | Year-specific data | "How many homicides in 2023?" |
-| **`search_by_location`** | Location-based search | "Find homicides on State Street" |
+| **`query_homicides_advanced`** | Counts, filters, rankings, locations, arrests, domestic cases | "Which ward had the most homicides in 2023?" |
 | **`get_iucr_info`** | Crime code information | "What does IUCR mean?" |
+| **`query_census_demographics`** | Population, income, race/ethnicity, age data | "What is the population of Austin?" |
+| **`query_socioeconomic`** | Poverty, unemployment, income, education, hardship | "Which areas have the highest hardship index?" |
+| **`query_property_values`** | Residential property sales and trends | "What are home prices in Lincoln Park?" |
+| **`analyze_homicide_rates_by_community_area`** | Homicide rates per 100,000 residents | "Highest homicide rate per capita in 2023?" |
+| **`analyze_homicide_socioeconomic_context`** | Homicides joined to socioeconomic indicators | "Domestic homicide concentration relative to hardship?" |
+| **`compare_homicide_district_trends`** | District period-over-period comparisons | "Which districts increased most from 2020-2021 to 2022-2023?" |
+| **`analyze_homicide_rate_population_change`** | Rate change versus population change where multi-year census data exists | "Did homicide rates rise where population fell?" |
 
 ## 💬 Usage Examples
 
@@ -104,13 +114,13 @@ The system provides these intelligent data analysis tools:
 💬 You: What location had the most homicides?
 🤔 Question: "What location had the most homicides?"
 🧠 Detected data question - using intelligent MCP...
-🔧 Calling tool: get_homicide_statistics with args: {}
+Calling tool: query_homicides_advanced with args: {"group_by": "district"}
 🤖 Assistant: Based on the homicide data analysis, the 11th District had the most homicides with 1,247 cases, followed by the 15th District with 891 cases...
 ```
 
 ### Manual Tool Calls
 ```
-💬 You: /mcp get_homicides_by_year 2023
+You: /mcp query_homicides_advanced {"start_year": 2023, "end_year": 2023}
 📋 MCP Result: 
 📅 Homicides in 2023
 Total records: 617
@@ -132,7 +142,7 @@ The `config.yaml` file controls model behavior:
 
 ```yaml
 model:
-  name: "gemini-1.5-pro-latest"        # Gemini model name
+  name: "gemini-2.5-flash-lite"        # Gemini model name
   temperature: 0.7                     # Response creativity (0.0-2.0)
   max_tokens: 2048                    # Maximum response length
   top_p: 0.9                          # Nucleus sampling

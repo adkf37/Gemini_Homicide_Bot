@@ -33,7 +33,10 @@ PROMPT_VARIANTS: Dict[str, Dict[str, Any]] = {
             "Use `query_census_demographics` for population, income, race, or age data for community areas.",
             "Use `query_socioeconomic` for poverty rates, unemployment, crowded housing, dependency, or hardship indices.",
             "Use `query_property_values` for home prices, sales volume, and property value trends (township-level data).",
-            "For cross-domain questions (e.g., 'homicide rate per capita'), call multiple tools in sequence: first homicides, then census for population, then synthesize.",
+            "Use `analyze_homicide_rates_by_community_area` for homicide rates per 100,000 residents by community area.",
+            "Use `analyze_homicide_socioeconomic_context` for homicide or domestic-homicide concentration relative to hardship, poverty, unemployment, income, education, crowding, or dependency.",
+            "Use `compare_homicide_district_trends` for police district trend comparisons across two periods.",
+            "Use `analyze_homicide_rate_population_change` for homicide rate change versus population change when multiple ACS years are available.",
             "Do NOT repeat a tool call with the same arguments — the data is already available in the prior results.",
             "Always include `start_year`/`end_year` when a user references a specific year for homicide queries.",
             "For 'which/what had the most' style questions set `group_by` to ward, district, community_area, or location as appropriate.",
@@ -55,6 +58,11 @@ PROMPT_VARIANTS: Dict[str, Dict[str, Any]] = {
                 "question": "Which areas have the highest hardship index?",
                 "tool": "query_socioeconomic",
                 "arguments": {"metric": "hardship", "top_n": 5}
+            },
+            {
+                "question": "Which community areas had the highest homicide rate per 100,000 in 2023?",
+                "tool": "analyze_homicide_rates_by_community_area",
+                "arguments": {"start_year": 2023, "end_year": 2023, "sort_by": "rate", "top_n": 10}
             },
             {
                 "question": "What are average home prices in Lincoln Park?",
@@ -88,7 +96,10 @@ PROMPT_VARIANTS: Dict[str, Dict[str, Any]] = {
             "Map demographics/population questions to `query_census_demographics`.",
             "Map poverty/hardship/socioeconomic questions to `query_socioeconomic`.",
             "Map home price/property value questions to `query_property_values`.",
-            "For cross-domain questions, call one tool at a time — you will get the result and can call another.",
+            "Map homicide-rate or per-capita homicide questions to `analyze_homicide_rates_by_community_area` instead of manually combining homicide and census tools.",
+            "Map homicide concentration versus hardship, poverty, unemployment, or other socioeconomic metrics to `analyze_homicide_socioeconomic_context`.",
+            "Map district period-over-period trend questions to `compare_homicide_district_trends`.",
+            "Use `analyze_homicide_rate_population_change` when the user asks to compare homicide rate changes with population changes.",
             "Do NOT repeat a tool call with identical arguments.",
             "After executing tool(s), synthesize a clear answer by combining all results.",
             "Use `group_by` whenever the user asks for \"which\" entity had the most or for top-N rankings."
@@ -101,8 +112,8 @@ PROMPT_VARIANTS: Dict[str, Dict[str, Any]] = {
             },
             {
                 "reasoning": "Need population to compute per-capita rate.",
-                "tool": "query_census_demographics",
-                "arguments": {"community_area": "Austin", "metric": "population"}
+                "tool": "analyze_homicide_rates_by_community_area",
+                "arguments": {"start_year": 2023, "end_year": 2023, "sort_by": "rate", "top_n": 10}
             },
             {
                 "reasoning": "User wants socioeconomic hardship ranking.",

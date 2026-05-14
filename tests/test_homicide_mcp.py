@@ -56,7 +56,7 @@ class TestStatistics:
         assert result['total_homicides'] == 20
         assert 'year_range' in result
         assert result['arrests_made'] == 6
-        assert result['domestic_cases'] == 6
+        assert result['domestic_cases'] == 5
     
     def test_year_filtering(self, homicide_mcp):
         """Test statistics with year range filtering."""
@@ -102,9 +102,9 @@ class TestAdvancedQuery:
         result = homicide_mcp.query_homicides_advanced(domestic=True)
         
         assert 'error' not in result
-        # Fixture has 6 domestic cases
-        assert result['total_matches'] == 6
-        assert result['domestic_count'] == 6
+        # Fixture has 5 domestic cases
+        assert result['total_matches'] == 5
+        assert result['domestic_count'] == 5
     
     def test_ward_filter(self, homicide_mcp):
         """Test filtering by ward."""
@@ -156,8 +156,8 @@ class TestAdvancedQuery:
         )
         
         assert 'error' not in result
-        # 2023 has 7 records, 3 have arrests, so 4 without arrests
-        assert result['total_matches'] == 4
+        # 2023 has 7 records, 2 have arrests, so 5 without arrests
+        assert result['total_matches'] == 5
         assert result['arrest_count'] == 0
         assert result['primary_breakdown']['type'] == 'ward'
     

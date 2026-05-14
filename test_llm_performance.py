@@ -180,8 +180,8 @@ class LLMPerformanceTester:
 
         # Fallback to Gemini defaults
         return [
-            "gemini-1.5-pro-latest",
-            "gemini-1.5-flash-latest"
+            "gemini-2.5-flash-lite",
+            "gemini-2.5-flash"
         ]
 
     def test_model(self, model_name: str) -> Dict[str, Any]:
@@ -272,16 +272,36 @@ class LLMPerformanceTester:
             result["trace"] = interaction
 
             expected_tool = test_case.get("expected_tool")
-            tool_call = interaction.get("tool_call") or {}
-            tool_execution = interaction.get("tool_execution") or {}
+            tool_calls = interaction.get("tool_calls") or []
+            tool_executions = interaction.get("tool_executions") or []
+            if not tool_calls and interaction.get("tool_call"):
+                tool_calls = [interaction["tool_call"]]
+            if not tool_executions and interaction.get("tool_execution"):
+                tool_executions = [interaction["tool_execution"]]
+            matching_index = 0
+            if expected_tool:
+                for idx, call in enumerate(tool_calls):
+                    if isinstance(call, dict) and call.get("name") == expected_tool:
+                        matching_index = idx
+                        break
+            tool_call = tool_calls[matching_index] if tool_calls else {}
+            tool_execution = (
+                tool_executions[matching_index]
+                if matching_index < len(tool_executions)
+                else (tool_executions[-1] if tool_executions else {})
+            )
 
             result["tool_called"] = tool_call.get("name") if isinstance(tool_call, dict) else None
+            result["tools_called"] = [
+                call.get("name") for call in tool_calls
+                if isinstance(call, dict) and call.get("name")
+            ]
             result["parameters_used"] = tool_call.get("arguments", {}) if isinstance(tool_call, dict) else {}
             result["tool_latency"] = tool_execution.get("latency_seconds")
 
-            if expected_tool and result["tool_called"] != expected_tool:
+            if expected_tool and expected_tool not in result["tools_called"]:
                 result["issues"].append(
-                    f"Expected tool '{expected_tool}' but model called '{result['tool_called']}'"
+                    f"Expected tool '{expected_tool}' but model called {result['tools_called']}"
                 )
 
             if expected_tool and not interaction.get("needs_tool_call", False):
@@ -456,8 +476,8 @@ class LLMPerformanceTester:
                 print(f"  ✅ {model}")
             return self.models_to_test
 
-        fallback = ["gemini-1.5-pro-latest"]
-        print("  ⚠️  No models configured; falling back to gemini-1.5-pro-latest")
+        fallback = ["gemini-2.5-flash-lite"]
+        print("  ⚠️  No models configured; falling back to gemini-2.5-flash-lite")
         return fallback
     
     def generate_summary(self, results: List[Dict[str, Any]]) -> Dict[str, Any]:

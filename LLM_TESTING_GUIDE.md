@@ -66,7 +66,7 @@ This will:
 ## 📋 Model Categories & Expected Performance
 
 ### Gemini Variants
-- **Examples:** gemini-1.5-pro-latest, gemini-1.5-flash-latest, gemini-1.5-pro-exp-0827
+- **Examples:** gemini-2.5-flash-lite, gemini-2.5-flash, gemini-2.5-pro
 - **Speed:** Flash variants respond faster but may trade off reasoning depth
 - **Capability:** Pro variants provide the highest accuracy for tool calling
 - **Best for:** Pick based on desired balance between latency and answer quality
@@ -117,7 +117,7 @@ model:
   "timestamp": "2024-XX-XX",
     "models_tested": [
       {
-        "model": "gemini-1.5-pro-latest",
+        "model": "gemini-2.5-flash-lite",
         "overall_score": 85.7,
         "categories": {
         "simple_queries": [...],
@@ -148,8 +148,8 @@ model:
 4. **Test with your specific use cases** beyond the standard suite
 
 ### For Different Use Cases
-- **Speed-critical:** Try `gemini-1.5-flash-latest`
-- **Accuracy-critical:** Use `gemini-1.5-pro-latest`
+- **Speed-critical:** Try `gemini-2.5-flash-lite`
+- **Accuracy-critical:** Use `gemini-2.5-pro`
 - **Balanced:** Experiment with experimental Pro releases for the latest improvements
 - **Cost-sensitive:** Lower max output tokens and temperature to minimize token usage
 
@@ -165,7 +165,7 @@ model:
 **All tests fail:**
 - Check if MCP data is loaded properly
 - Verify config.yaml is valid
-- Test with working model first (`gemini-1.5-pro-latest`)
+- Test with the configured default model first (`gemini-2.5-flash-lite`)
 
 **Inconsistent results:**
 - Lower temperature for more consistency

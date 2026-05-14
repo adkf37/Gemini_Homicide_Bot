@@ -50,17 +50,30 @@ def chat() -> tuple[Any, int]:
         # Allow the frontend to toggle tool usage.
         if use_tools:
             answer, trace = llm_app.ask_question_with_mcp(question)
-            tool_execution = (trace or {}).get("tool_execution") or {}
-            tool_call = (trace or {}).get("tool_call") or {}
-            tool_name = tool_call.get("name")
-            tool_data = tool_execution.get("raw_result") if not tool_execution.get("error") else None
-            used_tools = bool(tool_execution)
+            trace = trace or {}
+            tool_calls = trace.get("tool_calls") or []
+            tool_executions = trace.get("tool_executions") or []
+            if not tool_calls and trace.get("tool_call"):
+                tool_calls = [trace["tool_call"]]
+            if not tool_executions and trace.get("tool_execution"):
+                tool_executions = [trace["tool_execution"]]
+
+            tool_names = [
+                call.get("name") for call in tool_calls
+                if isinstance(call, dict) and call.get("name")
+            ]
+            raw_results = [
+                execution.get("raw_result") for execution in tool_executions
+                if isinstance(execution, dict) and not execution.get("error")
+            ]
+            used_tools = bool(tool_executions)
 
             payload = {
                 "answer": answer,
                 "used_tools": used_tools,
-                "tool_name": tool_name,
-                "tool_data": tool_data,
+                "tool_name": tool_names[-1] if tool_names else None,
+                "tool_names": tool_names,
+                "tool_data": raw_results[-1] if len(raw_results) == 1 else raw_results,
                 "interaction_trace": trace,
             }
         else:

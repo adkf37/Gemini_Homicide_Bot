@@ -13,7 +13,7 @@ class LlamaClient:
 
     def __init__(self, model_name: Optional[str] = None):
         self.config = config
-        self.model_name = model_name or self.config.get('model.name', 'gemini-1.5-pro-latest')
+        self.model_name = model_name or self.config.get('model.name', 'gemini-2.5-flash-lite')
         self.system_prompt_variant = self.config.get('prompts.system_prompt_variant', 'tool_use_reasoned')
 
         api_key_env = self.config.get('model.api_key_env', 'GOOGLE_API_KEY')

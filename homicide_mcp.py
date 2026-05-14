@@ -356,6 +356,15 @@ class HomicideDataMCP(BaseDataDomain):
         if 'Year' in clean_df.columns:
             clean_df['Year'] = pd.to_numeric(clean_df['Year'], errors='coerce')
 
+        if 'IUCR' in clean_df.columns:
+            clean_df['IUCR'] = (
+                clean_df['IUCR']
+                .fillna('')
+                .astype(str)
+                .str.replace(r'\.0$', '', regex=True)
+                .str.zfill(4)
+            )
+
         if 'Arrest' in clean_df.columns:
             clean_df['Arrest'] = (
                 clean_df['Arrest']
@@ -495,6 +504,7 @@ class HomicideDataMCP(BaseDataDomain):
             
         try:
             if iucr_code:
+                iucr_code = str(iucr_code).strip().replace(".0", "").zfill(4)
                 # Get specific IUCR code info
                 iucr_df = self.df[self.df['IUCR'] == iucr_code]
                 if iucr_df.empty:
@@ -539,6 +549,9 @@ class HomicideDataMCP(BaseDataDomain):
         try:
             df = self.df.copy()
             filters_applied = []
+
+            if start_year is not None and end_year is None:
+                end_year = start_year
             
             # Apply year range filter
             if start_year is not None:

@@ -182,6 +182,13 @@ class IntelligentMCPHandler:
             "question": question,
             "iterations": [],
             "final_answer": None,
+            "needs_tool_call": False,
+            "tool_call": None,
+            "tool_execution": None,
+            "tool_calls": [],
+            "tool_executions": [],
+            "tools_used": [],
+            "tool_call_count": 0,
         }
 
         # Accumulate prior tool results across iterations
@@ -198,6 +205,7 @@ class IntelligentMCPHandler:
                 interaction_trace["final_answer"] = self._synthesize_from_accumulated(
                     question, prior_tool_results, llama_client, timeout_msg
                 )
+                self._finalize_trace(interaction_trace)
                 return interaction_trace if include_trace else interaction_trace["final_answer"]
 
             print(f"\n--- Iteration {iteration}/{self.MAX_TOOL_ITERATIONS} ---")
@@ -228,6 +236,7 @@ class IntelligentMCPHandler:
                 iter_record["final"] = True
                 interaction_trace["iterations"].append(iter_record)
                 interaction_trace["final_answer"] = content
+                self._finalize_trace(interaction_trace)
                 return interaction_trace if include_trace else content
 
             # Parse the tool call
@@ -244,6 +253,7 @@ class IntelligentMCPHandler:
                     )
                 else:
                     interaction_trace["final_answer"] = error_msg
+                self._finalize_trace(interaction_trace)
                 return interaction_trace if include_trace else interaction_trace["final_answer"]
 
             iter_record["tool_call"] = tool_call
@@ -256,6 +266,7 @@ class IntelligentMCPHandler:
                 interaction_trace["final_answer"] = self._synthesize_from_accumulated(
                     question, prior_tool_results, llama_client, "Duplicate tool call detected"
                 )
+                self._finalize_trace(interaction_trace)
                 return interaction_trace if include_trace else interaction_trace["final_answer"]
             seen_calls.add(call_key)
 
@@ -289,7 +300,40 @@ class IntelligentMCPHandler:
         interaction_trace["final_answer"] = self._synthesize_from_accumulated(
             question, prior_tool_results, llama_client, "Max iterations reached"
         )
+        self._finalize_trace(interaction_trace)
         return interaction_trace if include_trace else interaction_trace["final_answer"]
+
+    def _finalize_trace(self, interaction_trace: Dict[str, Any]) -> Dict[str, Any]:
+        """Populate top-level trace summaries from per-iteration records.
+
+        Older web and eval callers read ``tool_call`` and ``tool_execution`` at
+        the top level. The canonical trace stores them in each iteration, so this
+        method keeps the detailed trace and adds compatibility summaries.
+        """
+        tool_calls: List[Dict[str, Any]] = []
+        tool_executions: List[Dict[str, Any]] = []
+
+        for iteration in interaction_trace.get("iterations", []):
+            tool_call = iteration.get("tool_call")
+            tool_execution = iteration.get("tool_execution")
+            if isinstance(tool_call, dict):
+                tool_calls.append(tool_call)
+            if isinstance(tool_execution, dict):
+                tool_executions.append(tool_execution)
+
+        interaction_trace["tool_calls"] = tool_calls
+        interaction_trace["tool_executions"] = tool_executions
+        interaction_trace["tool_call_count"] = len(tool_calls)
+        interaction_trace["tools_used"] = [
+            call.get("name") for call in tool_calls if call.get("name")
+        ]
+        interaction_trace["needs_tool_call"] = bool(tool_calls)
+        interaction_trace["tool_call"] = tool_calls[-1] if tool_calls else None
+        interaction_trace["tool_execution"] = tool_executions[-1] if tool_executions else None
+        interaction_trace["total_tool_latency_seconds"] = sum(
+            execution.get("latency_seconds", 0) or 0 for execution in tool_executions
+        )
+        return interaction_trace
 
     # ------------------------------------------------------------------
     # Synthesis helper

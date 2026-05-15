@@ -201,11 +201,9 @@ The application ships with a `Dockerfile` and GitHub Actions workflow for automa
    - Required GitHub secret:
      - `GCP_PROJECT_ID`: Your Google Cloud project ID
      - `GCP_PROJECT_NUMBER`: Your numeric Google Cloud project number
-   - Preferred Workload Identity Federation secrets:
+   - Workload Identity Federation secrets:
      - `WIF_PROVIDER`: Workload Identity Provider resource name
      - `WIF_SERVICE_ACCOUNT`: Service account email for deployment
-   - Simpler fallback auth secret:
-     - `GCP_CREDENTIALS`: Service account JSON key
    - Optional bootstrap secret:
      - `GEMINI_API_KEY`: Used only if `gemini-api-key` does not already exist in Secret Manager
 

@@ -13,7 +13,6 @@ env:
   WIF_PROVIDER: ${{ secrets.WIF_PROVIDER }}
   WIF_SERVICE_ACCOUNT: ${{ secrets.WIF_SERVICE_ACCOUNT }}
   PROJECT_NUMBER: ${{ secrets.GCP_PROJECT_NUMBER }}
-  HAS_GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS != '' }}
 
 jobs:
   test:
@@ -30,7 +29,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt pytest
+          pip install -r requirements-test.txt
 
       - name: Run unit tests
         run: |
@@ -57,32 +56,27 @@ jobs:
             echo "::error::Missing GitHub secret GCP_PROJECT_ID."
             exit 1
           fi
-
-          if [ -n "$WIF_PROVIDER" ] && [ -n "$WIF_SERVICE_ACCOUNT" ]; then
-            echo "Using Workload Identity Federation for Google Cloud auth."
-            if [ -z "$PROJECT_NUMBER" ]; then
-              PROJECT_NUMBER="$(echo "$WIF_PROVIDER" | sed -n 's#^projects/\([0-9][0-9]*\)/locations/.*#\1#p')"
-              echo "PROJECT_NUMBER=$PROJECT_NUMBER" >> "$GITHUB_ENV"
-            fi
-          elif [ "$HAS_GCP_CREDENTIALS" = "true" ]; then
-            echo "Using GCP_CREDENTIALS service account JSON for Google Cloud auth."
-          else
-            echo "::error::Configure either WIF_PROVIDER + WIF_SERVICE_ACCOUNT, or GCP_CREDENTIALS, in GitHub Actions secrets."
+          if [ "$PROJECT_ID" = "YOUR_PROJECT_ID" ]; then
+            echo "::error::GCP_PROJECT_ID is still set to the placeholder YOUR_PROJECT_ID. Set it to your real Google Cloud project ID, not the numeric project number or display name."
             exit 1
           fi
 
-      - name: Authenticate to Google Cloud with WIF
-        if: env.WIF_PROVIDER != '' && env.WIF_SERVICE_ACCOUNT != ''
+          if [ -z "$WIF_PROVIDER" ] || [ -z "$WIF_SERVICE_ACCOUNT" ]; then
+            echo "::error::Missing WIF_PROVIDER or WIF_SERVICE_ACCOUNT GitHub secret."
+            exit 1
+          fi
+
+          echo "Using Workload Identity Federation for Google Cloud auth."
+          if [ -z "$PROJECT_NUMBER" ]; then
+            PROJECT_NUMBER="$(echo "$WIF_PROVIDER" | sed -n 's#^projects/\([0-9][0-9]*\)/locations/.*#\1#p')"
+            echo "PROJECT_NUMBER=$PROJECT_NUMBER" >> "$GITHUB_ENV"
+          fi
+
+      - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ env.WIF_PROVIDER }}
           service_account: ${{ env.WIF_SERVICE_ACCOUNT }}
-
-      - name: Authenticate to Google Cloud with service account JSON
-        if: (env.WIF_PROVIDER == '' || env.WIF_SERVICE_ACCOUNT == '') && env.HAS_GCP_CREDENTIALS == 'true'
-        uses: google-github-actions/auth@v2
-        with:
-          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2

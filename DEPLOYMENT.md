@@ -213,17 +213,16 @@ gcloud run services describe gemini-homicide-bot \
 For automated deployments on every new commit pushed to `main`:
 
 1. **Configure Google Cloud authentication**
-   - Preferred: set up Workload Identity Federation using https://github.com/google-github-actions/auth#setting-up-workload-identity-federation
-   - Fallback: use a service account JSON key while WIF is not configured
+   - Set up Workload Identity Federation using https://github.com/google-github-actions/auth#setting-up-workload-identity-federation
 
 2. **Add GitHub Secrets**
    - Go to your repo → Settings → Secrets and variables → Actions
    - Always add:
      - `GCP_PROJECT_ID`: Your project ID
      - `GCP_PROJECT_NUMBER`: Your numeric project number
-   - Add one authentication option:
-     - WIF: `WIF_PROVIDER` and `WIF_SERVICE_ACCOUNT`
-     - JSON fallback: `GCP_CREDENTIALS` containing the service account JSON key
+   - Add Workload Identity Federation auth:
+     - `WIF_PROVIDER`: Workload Identity Provider resource name
+     - `WIF_SERVICE_ACCOUNT`: Service account email
    - Optional bootstrap:
      - `GEMINI_API_KEY`: Creates `gemini-api-key` in Secret Manager if it does not already exist
 

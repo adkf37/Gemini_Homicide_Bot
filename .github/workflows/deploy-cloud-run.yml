@@ -10,6 +10,9 @@ env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   SERVICE_NAME: gemini-homicide-bot
   REGION: us-central1
+  WIF_PROVIDER: ${{ secrets.WIF_PROVIDER }}
+  WIF_SERVICE_ACCOUNT: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+  HAS_GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS != '' }}
 
 jobs:
   test:
@@ -47,11 +50,34 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Authenticate to Google Cloud
+      - name: Validate Google Cloud auth configuration
+        run: |
+          if [ -z "$PROJECT_ID" ]; then
+            echo "::error::Missing GitHub secret GCP_PROJECT_ID."
+            exit 1
+          fi
+
+          if [ -n "$WIF_PROVIDER" ] && [ -n "$WIF_SERVICE_ACCOUNT" ]; then
+            echo "Using Workload Identity Federation for Google Cloud auth."
+          elif [ "$HAS_GCP_CREDENTIALS" = "true" ]; then
+            echo "Using GCP_CREDENTIALS service account JSON for Google Cloud auth."
+          else
+            echo "::error::Configure either WIF_PROVIDER + WIF_SERVICE_ACCOUNT, or GCP_CREDENTIALS, in GitHub Actions secrets."
+            exit 1
+          fi
+
+      - name: Authenticate to Google Cloud with WIF
+        if: env.WIF_PROVIDER != '' && env.WIF_SERVICE_ACCOUNT != ''
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
-          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.WIF_SERVICE_ACCOUNT }}
+
+      - name: Authenticate to Google Cloud with service account JSON
+        if: (env.WIF_PROVIDER == '' || env.WIF_SERVICE_ACCOUNT == '') && env.HAS_GCP_CREDENTIALS == 'true'
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
@@ -59,6 +85,29 @@ jobs:
       - name: Configure Docker for Artifact Registry
         run: |
           gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
+
+      - name: Ensure Gemini API key secret exists
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          if gcloud secrets describe gemini-api-key --project "$PROJECT_ID" >/dev/null 2>&1; then
+            echo "Secret Manager secret gemini-api-key exists."
+          elif [ -n "$GEMINI_API_KEY" ]; then
+            printf '%s' "$GEMINI_API_KEY" | gcloud secrets create gemini-api-key \
+              --project "$PROJECT_ID" \
+              --data-file=-
+            echo "Created Secret Manager secret gemini-api-key from GitHub secret GEMINI_API_KEY."
+          else
+            echo "::error::Secret Manager secret gemini-api-key does not exist. Create it in Google Cloud, or add a GEMINI_API_KEY GitHub secret for one-time bootstrap."
+            exit 1
+          fi
+
+          PROJECT_NUMBER="$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')"
+          gcloud secrets add-iam-policy-binding gemini-api-key \
+            --project "$PROJECT_ID" \
+            --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+            --role="roles/secretmanager.secretAccessor" \
+            --quiet
 
       - name: Build and push Docker image
         run: |

@@ -220,6 +220,7 @@ For automated deployments on every new commit pushed to `main`:
    - Go to your repo → Settings → Secrets and variables → Actions
    - Always add:
      - `GCP_PROJECT_ID`: Your project ID
+     - `GCP_PROJECT_NUMBER`: Your numeric project number
    - Add one authentication option:
      - WIF: `WIF_PROVIDER` and `WIF_SERVICE_ACCOUNT`
      - JSON fallback: `GCP_CREDENTIALS` containing the service account JSON key

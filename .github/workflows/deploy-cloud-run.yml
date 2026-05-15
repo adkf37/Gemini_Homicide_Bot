@@ -12,6 +12,7 @@ env:
   REGION: us-central1
   WIF_PROVIDER: ${{ secrets.WIF_PROVIDER }}
   WIF_SERVICE_ACCOUNT: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+  PROJECT_NUMBER: ${{ secrets.GCP_PROJECT_NUMBER }}
   HAS_GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS != '' }}
 
 jobs:
@@ -59,6 +60,10 @@ jobs:
 
           if [ -n "$WIF_PROVIDER" ] && [ -n "$WIF_SERVICE_ACCOUNT" ]; then
             echo "Using Workload Identity Federation for Google Cloud auth."
+            if [ -z "$PROJECT_NUMBER" ]; then
+              PROJECT_NUMBER="$(echo "$WIF_PROVIDER" | sed -n 's#^projects/\([0-9][0-9]*\)/locations/.*#\1#p')"
+              echo "PROJECT_NUMBER=$PROJECT_NUMBER" >> "$GITHUB_ENV"
+            fi
           elif [ "$HAS_GCP_CREDENTIALS" = "true" ]; then
             echo "Using GCP_CREDENTIALS service account JSON for Google Cloud auth."
           else
@@ -102,7 +107,11 @@ jobs:
             exit 1
           fi
 
-          PROJECT_NUMBER="$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')"
+          if [ -z "$PROJECT_NUMBER" ]; then
+            echo "::error::Missing GitHub secret GCP_PROJECT_NUMBER. Add it, or use WIF_PROVIDER so the workflow can parse the project number."
+            exit 1
+          fi
+
           gcloud secrets add-iam-policy-binding gemini-api-key \
             --project "$PROJECT_ID" \
             --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \

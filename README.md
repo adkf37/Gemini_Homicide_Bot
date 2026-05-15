@@ -200,6 +200,7 @@ The application ships with a `Dockerfile` and GitHub Actions workflow for automa
 3. **GitHub Actions Authentication**
    - Required GitHub secret:
      - `GCP_PROJECT_ID`: Your Google Cloud project ID
+     - `GCP_PROJECT_NUMBER`: Your numeric Google Cloud project number
    - Preferred Workload Identity Federation secrets:
      - `WIF_PROVIDER`: Workload Identity Provider resource name
      - `WIF_SERVICE_ACCOUNT`: Service account email for deployment

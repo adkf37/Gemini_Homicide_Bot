@@ -1,10 +1,8 @@
-import os
 from typing import List, Dict, Any, Optional, Union
 
 import google.generativeai as genai
-from dotenv import load_dotenv
-load_dotenv()
 from config import config
+from gemini_secret import resolve_gemini_api_key
 from prompt_registry import build_tool_system_prompt
 
 
@@ -16,13 +14,7 @@ class LlamaClient:
         self.model_name = model_name or self.config.get('model.name', 'gemini-2.5-flash-lite')
         self.system_prompt_variant = self.config.get('prompts.system_prompt_variant', 'tool_use_reasoned')
 
-        api_key_env = self.config.get('model.api_key_env', 'GOOGLE_API_KEY')
-        api_key = os.getenv(api_key_env)
-
-        if not api_key:
-            raise EnvironmentError(
-                f"Missing Gemini API key. Set the '{api_key_env}' environment variable."
-            )
+        api_key = resolve_gemini_api_key(self.config)
 
         genai.configure(api_key=api_key)
         self.client = genai.GenerativeModel(self.model_name)

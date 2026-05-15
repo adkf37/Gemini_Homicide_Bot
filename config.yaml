@@ -7,6 +7,8 @@ model:
   repeat_penalty: 1.1
   context_window: 40000
   api_key_env: "GOOGLE_API_KEY"
+  api_key_secret_ref_env: "GOOGLE_API_KEY_SECRET_REF"
+  api_key_secret_version: "latest"
 
 # RAG Configuration
 rag:

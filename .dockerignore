@@ -16,6 +16,7 @@ build
 !README.md
 .env
 .env.local
+.env.*
 *.log
 data/chroma_db
 tests/__pycache__

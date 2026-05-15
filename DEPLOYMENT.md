@@ -10,17 +10,24 @@ If you already have gcloud CLI installed and a Google Cloud project:
 # 1. Store your Gemini API key in Secret Manager
 gcloud secrets create gemini-api-key --data-file=- <<< "YOUR_API_KEY"
 
-# 2. Deploy from source
+# 2. Allow the Cloud Run runtime service account to read the secret
+PROJECT_ID="$(gcloud config get-value project)"
+PROJECT_NUMBER="$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')"
+gcloud secrets add-iam-policy-binding gemini-api-key \
+  --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+  --role="roles/secretmanager.secretAccessor"
+
+# 3. Deploy from source
 gcloud run deploy gemini-homicide-bot \
   --source . \
   --region us-central1 \
   --allow-unauthenticated \
-  --set-secrets=GOOGLE_API_KEY=gemini-api-key:latest \
+  --update-env-vars=GOOGLE_API_KEY_SECRET_REF=gemini-api-key,GCP_PROJECT_ID="$PROJECT_ID" \
   --memory 512Mi \
   --cpu 1 \
   --timeout 300
 
-# 3. Visit the URL shown in the output
+# 4. Visit the URL shown in the output
 ```
 
 ## Detailed Setup
@@ -71,6 +78,13 @@ echo -n "YOUR_GEMINI_API_KEY_HERE" | gcloud secrets create gemini-api-key --data
 
 # Verify it was created
 gcloud secrets describe gemini-api-key
+
+# Grant the default Cloud Run runtime service account access
+PROJECT_ID="$(gcloud config get-value project)"
+PROJECT_NUMBER="$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')"
+gcloud secrets add-iam-policy-binding gemini-api-key \
+  --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+  --role="roles/secretmanager.secretAccessor"
 ```
 
 #### 4. Deploy to Cloud Run
@@ -81,7 +95,7 @@ gcloud run deploy gemini-homicide-bot \
   --source . \
   --region us-central1 \
   --allow-unauthenticated \
-  --set-secrets=GOOGLE_API_KEY=gemini-api-key:latest \
+  --update-env-vars=GOOGLE_API_KEY_SECRET_REF=gemini-api-key,GCP_PROJECT_ID="$(gcloud config get-value project)" \
   --memory 512Mi \
   --cpu 1 \
   --min-instances 0 \
@@ -94,7 +108,7 @@ gcloud run deploy gemini-homicide-bot \
 - Pushes to Google Artifact Registry
 - Deploys to Cloud Run in `us-central1`
 - Configures auto-scaling (0-10 instances)
-- Injects API key from Secret Manager
+- Reads the API key directly from Secret Manager at startup
 - Allocates 512MB RAM and 1 CPU per instance
 - Makes the service publicly accessible
 
@@ -196,7 +210,7 @@ gcloud run services describe gemini-homicide-bot \
 
 ### CI/CD with GitHub Actions
 
-For automated deployments on every push to `main`:
+For automated deployments on every new commit pushed to `main`:
 
 1. **Set up Workload Identity Federation** (one-time setup)
    - Follow: https://github.com/google-github-actions/auth#setting-up-workload-identity-federation
@@ -213,7 +227,7 @@ For automated deployments on every push to `main`:
    - The workflow in `.github/workflows/deploy-cloud-run.yml` will:
      - Run unit tests
      - Build Docker image
-     - Deploy to Cloud Run
+     - Deploy a new Cloud Run revision named with the commit SHA and run number
      - Output service URL
 
 ### Troubleshooting
@@ -233,7 +247,8 @@ gcloud projects add-iam-policy-binding PROJECT_ID \
 
 **App crashes on startup**
 - Check logs: `gcloud run services logs read gemini-homicide-bot --region us-central1 --limit 50`
-- Verify `GOOGLE_API_KEY` is set correctly
+- Verify `GOOGLE_API_KEY_SECRET_REF` and `GCP_PROJECT_ID` are set on Cloud Run
+- Verify the runtime service account has `roles/secretmanager.secretAccessor` on `gemini-api-key`
 - Test locally with Docker first
 
 **Cold start times**
@@ -269,7 +284,7 @@ docker push gcr.io/PROJECT_ID/gemini-homicide-bot:latest
 gcloud run deploy gemini-homicide-bot \
   --image gcr.io/PROJECT_ID/gemini-homicide-bot:latest \
   --region us-central1 \
-  --set-secrets=GOOGLE_API_KEY=gemini-api-key:latest
+  --update-env-vars=GOOGLE_API_KEY_SECRET_REF=gemini-api-key,GCP_PROJECT_ID=PROJECT_ID
 ```
 
 ## Support

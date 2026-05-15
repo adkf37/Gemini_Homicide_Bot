@@ -9,7 +9,7 @@ This document summarizes the deployment and testing infrastructure added to the 
 1. **`Dockerfile`**
    - Production-ready Python 3.11-slim base image
    - Installs dependencies and Gunicorn
-   - Configured for Cloud Run (port 8080, GOOGLE_API_KEY injection)
+   - Configured for Cloud Run (port 8080, Secret Manager lookup)
    - Health check endpoint for container orchestration
    - 1 worker, 8 threads, optimized for Cloud Run
 
@@ -38,7 +38,7 @@ This document summarizes the deployment and testing infrastructure added to the 
 gcloud run deploy gemini-homicide-bot \
   --source . \
   --region us-central1 \
-  --set-secrets=GOOGLE_API_KEY=gemini-api-key:latest
+  --update-env-vars=GOOGLE_API_KEY_SECRET_REF=gemini-api-key,GCP_PROJECT_ID=PROJECT_ID
 ```
 
 **2. Automated with GitHub Actions**

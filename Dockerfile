@@ -19,7 +19,8 @@ COPY . .
 ENV PORT=8080
 ENV PYTHONUNBUFFERED=1
 
-# Cloud Run will inject GOOGLE_API_KEY as a secret
+# Cloud Run provides GOOGLE_API_KEY_SECRET_REF and the app reads the key
+# directly from Secret Manager at startup.
 # Expose port (documentation only, Cloud Run ignores this)
 EXPOSE 8080
 

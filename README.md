@@ -30,7 +30,7 @@ The system can intelligently answer questions like:
 ### 1. Enable Gemini API Access
 Create a Google AI Studio project and generate an API key with access to the Gemini model configured in `config.yaml`.
 
-### 2. Set Your API Key
+### 2. Set Your API Key For Local Development
 ```bash
 export GOOGLE_API_KEY="your_api_key_here"
 ```
@@ -38,6 +38,9 @@ On Windows PowerShell:
 ```powershell
 $Env:GOOGLE_API_KEY="your_api_key_here"
 ```
+
+Do not store the key in a checked-in or long-lived `.env` file. In Cloud Run,
+the app reads the key directly from Google Secret Manager.
 
 ### 3. Install Python Dependencies
 ```powershell
@@ -186,6 +189,13 @@ The application ships with a `Dockerfile` and GitHub Actions workflow for automa
      ```bash
      gcloud secrets create gemini-api-key --data-file=- <<< "YOUR_API_KEY_HERE"
      ```
+   - Grant the Cloud Run runtime service account access to that secret:
+     ```bash
+     PROJECT_NUMBER=$(gcloud projects describe YOUR_PROJECT_ID --format='value(projectNumber)')
+     gcloud secrets add-iam-policy-binding gemini-api-key \
+       --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+       --role="roles/secretmanager.secretAccessor"
+     ```
 
 3. **Workload Identity Federation (for CI/CD)**
    - Set up Workload Identity Federation to allow GitHub Actions to deploy
@@ -209,7 +219,7 @@ gcloud run deploy gemini-homicide-bot \
   --source . \
   --region us-central1 \
   --allow-unauthenticated \
-  --set-secrets=GOOGLE_API_KEY=gemini-api-key:latest \
+  --update-env-vars=GOOGLE_API_KEY_SECRET_REF=gemini-api-key,GCP_PROJECT_ID=YOUR_PROJECT_ID \
   --memory 512Mi \
   --cpu 1
 ```
@@ -218,7 +228,7 @@ Cloud Run will:
 - Build the Docker image from the `Dockerfile`
 - Deploy to a public HTTPS URL
 - Auto-scale from 0 to 10 instances based on traffic
-- Inject `GOOGLE_API_KEY` from Secret Manager
+- Read the Gemini API key directly from Secret Manager at startup
 
 ### Automated Deployment with GitHub Actions
 

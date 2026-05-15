@@ -113,25 +113,46 @@ class CensusDataMCP(BaseDataDomain):
             print(f"  ⚠️ Census data load failed: {e}")
             return False
 
+    def _coverage_hint(self) -> str:
+        """Return a human-readable description of the years available in the cache."""
+        try:
+            if self.df is None or "acs_year" not in self.df.columns:
+                return "latest ACS 5-year estimate only (single snapshot)"
+            years = sorted(int(y) for y in self.df["acs_year"].dropna().unique())
+            if not years:
+                return "latest ACS 5-year estimate only (single snapshot)"
+            if len(years) == 1:
+                return f"ONLY the {years[0]} ACS 5-year estimate is currently cached (no historical years)"
+            return f"ACS years available: {years[0]}-{years[-1]}"
+        except Exception:
+            return "latest ACS 5-year estimate only"
+
     def get_tool_definitions(self) -> List[Dict[str, Any]]:
+        # Build dynamic data-coverage hints from the loaded cache
+        coverage_hint = self._coverage_hint()
         return [
             {
                 "name": "query_census_demographics",
                 "description": (
-                    "Query ACS 5-Year census data for Chicago community areas. "
+                    "Query ACS 5-Year census data for Chicago COMMUNITY AREAS (1-77). "
                     "Returns population, income distribution, race/ethnicity, and age/gender breakdowns. "
                     "Use for questions like: 'What is the population of Austin?', "
                     "'Which community area has the highest income?', "
-                    "'Compare demographics of Hyde Park and Englewood'."
+                    "'Compare demographics of Hyde Park and Englewood'. "
+                    "⚠️ GEOGRAPHIC SCOPE: Community area ONLY — does NOT support wards or police districts. "
+                    "If the user asks about a ward, do not call this tool with that ward number; "
+                    "either ask for a community area or omit the geographic filter. "
+                    f"⚠️ TIME COVERAGE: {coverage_hint}. Requests for other years will return the latest "
+                    "available data with a warning — historical ACS years are not currently cached."
                 ),
                 "parameters": {
                     "community_area": {
                         "type": "string",
-                        "description": "Community area name or number (e.g., 'Austin' or '25')",
+                        "description": "Community area name or number 1-77 (e.g., 'Austin' or '25'). Do NOT pass a ward number here.",
                     },
                     "year": {
                         "type": "integer",
-                        "description": "ACS survey year (default: latest available, e.g. 2023)",
+                        "description": f"ACS survey year. {coverage_hint}.",
                     },
                     "metric": {
                         "type": "string",
@@ -252,20 +273,35 @@ class CensusDataMCP(BaseDataDomain):
 
         df = self.df.copy()
 
-        # Filter by year (default: latest)
+        # Filter by year (default: latest). Surface a warning if the user
+        # requested a year that isn't in the cache so the LLM can communicate
+        # the limitation honestly rather than silently returning latest-year data.
+        warnings: List[str] = []
+        target_year = None
         if "acs_year" in df.columns:
-            available_years = sorted(df["acs_year"].dropna().unique())
-            target_year = year if year and year in available_years else (available_years[-1] if available_years else None)
+            available_years = sorted(int(y) for y in df["acs_year"].dropna().unique())
+            if year and available_years and year not in available_years:
+                warnings.append(
+                    f"Requested ACS year {year} is not available. "
+                    f"Available year(s): {available_years}. "
+                    f"Returning data for {available_years[-1]} instead."
+                )
+                target_year = available_years[-1]
+            elif year and year in available_years:
+                target_year = year
+            elif available_years:
+                target_year = available_years[-1]
             if target_year is not None:
                 df = df[df["acs_year"] == target_year]
-        else:
-            target_year = None
 
         result: Dict[str, Any] = {
             "acs_year": int(target_year) if target_year else "unknown",
+            "available_years": sorted(int(y) for y in self.df["acs_year"].dropna().unique()) if "acs_year" in self.df.columns else [],
             "metric": metric,
             "total_areas": len(df),
         }
+        if warnings:
+            result["warnings"] = warnings
 
         # Build list of areas to report on
         areas_to_query: List[str] = []

@@ -77,11 +77,14 @@ class PropertyDataMCP(BaseDataDomain):
                 "description": (
                     "Query Chicago residential property sale statistics from Cook County "
                     "Assessor data. Returns average sale price, sales volume, and trends "
-                    "by year and geographic area (township level, mapped to community areas). "
+                    "by year and geographic area. "
                     "Use for questions like: 'What are home prices in Lincoln Park?', "
                     "'Which area has the most expensive homes?', "
                     "'How have property values changed since 2020?'. "
-                    "Note: prices are at township level (8 zones covering all 77 community areas)."
+                    "⚠️ GEOGRAPHIC SCOPE: TOWNSHIP level (8 townships covering Chicago). "
+                    "Community area names are mapped to the containing township (approximate). "
+                    "Does NOT support ward or police district filtering. "
+                    "⚠️ TIME COVERAGE: ~2000-present (annual). Pass a `year` for a specific year."
                 ),
                 "parameters": {
                     "community_area": {

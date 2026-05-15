@@ -89,17 +89,22 @@ class SocioeconomicDataMCP(BaseDataDomain):
             {
                 "name": "query_socioeconomic",
                 "description": (
-                    "Query socioeconomic indicators for Chicago community areas (2008-2012 ACS). "
+                    "Query socioeconomic indicators for Chicago COMMUNITY AREAS (1-77). "
                     "Returns per-capita income, poverty rate, unemployment, education levels, "
                     "housing crowding, dependency ratio, and the composite hardship index. "
                     "Use for questions like: 'Which area has the highest hardship index?', "
                     "'Compare poverty rates in Austin and Lincoln Park', "
-                    "'Top 10 community areas by per capita income'."
+                    "'Top 10 community areas by per capita income'. "
+                    "⚠️ GEOGRAPHIC SCOPE: Community area ONLY — does NOT support wards or police districts. "
+                    "If the user asks about a ward, do not call this tool with that ward number. "
+                    "⚠️ TIME COVERAGE: STATIC 2008-2012 ACS estimates only — there is NO year parameter "
+                    "and the data does not update. Treat as a relative/structural snapshot, not current figures. "
+                    "If the user asks for a specific year, note this limitation in the answer."
                 ),
                 "parameters": {
                     "community_area": {
                         "type": "string",
-                        "description": "Community area name or number (e.g., 'Englewood' or '68')",
+                        "description": "Community area name or number 1-77 (e.g., 'Englewood' or '68'). Do NOT pass a ward number here.",
                     },
                     "metric": {
                         "type": "string",

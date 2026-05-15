@@ -1,0 +1,290 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Gemini Homicide Bot evaluation suite.
+
+  Tests multi-domain Chicago analytics: homicides (2001-present, supports ward/
+  district/community_area), census demographics (community_area only, latest ACS),
+  socioeconomic indicators (community_area only, static 2008-2012), and property
+  values (township level, ~2000-present).
+
+  Format mirrors chicago-zoning-mcp/evals/zoning_qa.xml:
+    - tool: primary expected tool name, or "multi_step"
+    - expected_tools: comma-separated tools for multi-step questions
+    - answer / answer_contains / answer_regex: automated answer checks
+    - type / question_type / prompt_complexity / audience / data_source: metadata
+
+  Run with:  python evals/run_evals.py
+-->
+<eval_suite name="gemini_homicide_bot" version="1.0">
+
+  <!-- =========================================================== -->
+  <!-- Section 1: Single-tool homicide queries                     -->
+  <!-- =========================================================== -->
+
+  <question id="1" tool="query_homicides_advanced" type="factual" question_type="factual"
+            prompt_complexity="simple" audience="general" data_source="chicago_homicides">
+    <prompt>How many homicides happened in Chicago in 2023?</prompt>
+    <answer_regex>\b(6\d{2}|7\d{2})\b</answer_regex>
+    <expected_tools>query_homicides_advanced</expected_tools>
+    <notes>Should call query_homicides_advanced with start_year=end_year=2023. ~617 homicides in 2023.</notes>
+  </question>
+
+  <question id="2" tool="query_homicides_advanced" type="ranking" question_type="factual"
+            prompt_complexity="simple" audience="general" data_source="chicago_homicides">
+    <prompt>Which ward had the most homicides in 2010?</prompt>
+    <answer_contains>ward</answer_contains>
+    <expected_tools>query_homicides_advanced</expected_tools>
+    <notes>Should use group_by=ward, start_year=end_year=2010. Should return a numeric ward.</notes>
+  </question>
+
+  <question id="3" tool="query_homicides_advanced" type="factual" question_type="factual"
+            prompt_complexity="simple" audience="general" data_source="chicago_homicides">
+    <prompt>How many homicides occurred in ward 10 in 2010?</prompt>
+    <answer_regex>\b\d+\b</answer_regex>
+    <expected_tools>query_homicides_advanced</expected_tools>
+    <notes>Should call query_homicides_advanced with ward=10, start_year=end_year=2010.</notes>
+  </question>
+
+  <question id="4" tool="query_homicides_advanced" type="factual" question_type="factual"
+            prompt_complexity="simple" audience="general" data_source="chicago_homicides">
+    <prompt>How many homicides occurred in police district 11 in 2022?</prompt>
+    <answer_regex>\b\d+\b</answer_regex>
+    <expected_tools>query_homicides_advanced</expected_tools>
+    <notes>Should use district=11, start_year=end_year=2022.</notes>
+  </question>
+
+  <question id="5" tool="query_homicides_advanced" type="trend" question_type="factual"
+            prompt_complexity="simple" audience="general" data_source="chicago_homicides">
+    <prompt>How many homicides happened in Chicago from 2015 to 2019?</prompt>
+    <answer_regex>\b\d{3,4}\b</answer_regex>
+    <expected_tools>query_homicides_advanced</expected_tools>
+    <notes>Should pass start_year=2015, end_year=2019.</notes>
+  </question>
+
+  <question id="6" tool="query_homicides_advanced" type="filter" question_type="factual"
+            prompt_complexity="simple" audience="general" data_source="chicago_homicides">
+    <prompt>How many domestic homicides occurred in 2022?</prompt>
+    <answer_regex>\b\d+\b</answer_regex>
+    <expected_tools>query_homicides_advanced</expected_tools>
+    <notes>Should pass domestic=true and year=2022.</notes>
+  </question>
+
+  <question id="7" tool="query_homicides_advanced" type="filter" question_type="factual"
+            prompt_complexity="simple" audience="general" data_source="chicago_homicides">
+    <prompt>How many homicides with arrests occurred on streets in 2021?</prompt>
+    <answer_regex>\b\d+\b</answer_regex>
+    <expected_tools>query_homicides_advanced</expected_tools>
+    <notes>Should pass arrest_status=true, location_type containing STREET, year=2021.</notes>
+  </question>
+
+  <question id="8" tool="query_homicides_advanced" type="ranking" question_type="factual"
+            prompt_complexity="simple" audience="general" data_source="chicago_homicides">
+    <prompt>Which community area had the most homicides in 2020?</prompt>
+    <answer_contains>community</answer_contains>
+    <expected_tools>query_homicides_advanced</expected_tools>
+    <notes>Should pass group_by=community_area, start_year=end_year=2020.</notes>
+  </question>
+
+  <question id="9" tool="get_iucr_info" type="lookup" question_type="factual"
+            prompt_complexity="simple" audience="general" data_source="iucr_reference">
+    <prompt>What does IUCR code 0110 mean?</prompt>
+    <answer_contains>homicide</answer_contains>
+    <expected_tools>get_iucr_info</expected_tools>
+    <notes>IUCR 0110 is First Degree Murder.</notes>
+  </question>
+
+  <question id="10" tool="query_homicides_advanced" type="trend" question_type="factual"
+            prompt_complexity="moderate" audience="general" data_source="chicago_homicides">
+    <prompt>Compare homicide totals between 2019 and 2020.</prompt>
+    <answer_regex>\b(202[01]|2019)\b</answer_regex>
+    <expected_tools>query_homicides_advanced</expected_tools>
+    <notes>Single call with start_year=2019, end_year=2020 is acceptable; two sequential calls are also OK.</notes>
+  </question>
+
+  <!-- =========================================================== -->
+  <!-- Section 2: Census demographics (community area only)        -->
+  <!-- =========================================================== -->
+
+  <question id="11" tool="query_census_demographics" type="factual" question_type="factual"
+            prompt_complexity="simple" audience="general" data_source="census_acs">
+    <prompt>What is the population of Austin?</prompt>
+    <answer_regex>\b\d{2,3},?\d{3}\b</answer_regex>
+    <expected_tools>query_census_demographics</expected_tools>
+    <notes>Should call query_census_demographics with community_area=Austin, metric=population.</notes>
+  </question>
+
+  <question id="12" tool="query_census_demographics" type="comparison" question_type="comparison"
+            prompt_complexity="moderate" audience="general" data_source="census_acs">
+    <prompt>Compare the demographics of Lincoln Park and Englewood.</prompt>
+    <answer_contains>Lincoln Park</answer_contains>
+    <expected_tools>query_census_demographics</expected_tools>
+    <notes>Single call with community_area and compare_areas, or two sequential calls.</notes>
+  </question>
+
+  <question id="13" tool="query_census_demographics" type="ranking" question_type="factual"
+            prompt_complexity="simple" audience="general" data_source="census_acs">
+    <prompt>Which community area has the highest income in Chicago?</prompt>
+    <answer_contains>community</answer_contains>
+    <expected_tools>query_census_demographics</expected_tools>
+    <notes>Should call with metric=income, top_n=1 or more.</notes>
+  </question>
+
+  <!-- =========================================================== -->
+  <!-- Section 3: Geographic compatibility — ward + demographics   -->
+  <!-- (the bug that motivated this eval suite)                    -->
+  <!-- =========================================================== -->
+
+  <question id="14" tool="multi_step" type="geographic_mismatch" question_type="recommendation"
+            prompt_complexity="moderate" audience="general" data_source="cross_domain">
+    <prompt>How many homicides and how many people are in ward 10 in 2010?</prompt>
+    <answer_regex>(community area|not available|not supported|cannot|ward[- ]level (census|demographic|population))</answer_regex>
+    <expected_tools>query_homicides_advanced</expected_tools>
+    <notes>Homicide count for ward 10 IS available. Census/population by ward is NOT available — the LLM should call query_homicides_advanced for the ward count, and explicitly state that ward-level population is not available (or offer community-area-level instead). It should NOT silently pass ward=10 to query_census_demographics.</notes>
+  </question>
+
+  <question id="15" tool="multi_step" type="geographic_mismatch" question_type="recommendation"
+            prompt_complexity="moderate" audience="general" data_source="cross_domain">
+    <prompt>What is the poverty rate in ward 28?</prompt>
+    <answer_regex>(community area|not available|not supported|cannot|ward[- ]level)</answer_regex>
+    <notes>Socioeconomic data is community-area-only. LLM should explain the limitation rather than silently passing ward=28 to query_socioeconomic.</notes>
+  </question>
+
+  <question id="16" tool="query_census_demographics" type="year_unavailable" question_type="factual"
+            prompt_complexity="moderate" audience="general" data_source="census_acs">
+    <prompt>What was the population of Austin in 2010?</prompt>
+    <answer_regex>(not available|only|latest|2023|cache|historical)</answer_regex>
+    <expected_tools>query_census_demographics</expected_tools>
+    <notes>Cache currently has only the latest ACS year (e.g. 2023). LLM should mention that 2010 data is not available and surface the year actually returned.</notes>
+  </question>
+
+  <!-- =========================================================== -->
+  <!-- Section 4: Socioeconomic indicators                         -->
+  <!-- =========================================================== -->
+
+  <question id="17" tool="query_socioeconomic" type="ranking" question_type="factual"
+            prompt_complexity="simple" audience="general" data_source="socioeconomic">
+    <prompt>Which Chicago community areas have the highest hardship index?</prompt>
+    <answer_contains>hardship</answer_contains>
+    <expected_tools>query_socioeconomic</expected_tools>
+    <notes>Should call with metric=hardship, top_n=5-10. Riverdale, Fuller Park, South Lawndale, etc. typically rank high.</notes>
+  </question>
+
+  <question id="18" tool="query_socioeconomic" type="factual" question_type="factual"
+            prompt_complexity="simple" audience="general" data_source="socioeconomic">
+    <prompt>What is the per capita income of Lincoln Park?</prompt>
+    <answer_regex>\$?\d{2,3},?\d{3}</answer_regex>
+    <expected_tools>query_socioeconomic</expected_tools>
+    <notes>Should call with community_area=Lincoln Park, metric=income.</notes>
+  </question>
+
+  <question id="19" tool="query_socioeconomic" type="comparison" question_type="comparison"
+            prompt_complexity="moderate" audience="general" data_source="socioeconomic">
+    <prompt>Compare the poverty rate of Englewood and Lincoln Park.</prompt>
+    <answer_contains>Englewood</answer_contains>
+    <expected_tools>query_socioeconomic</expected_tools>
+    <notes>Englewood has much higher poverty than Lincoln Park.</notes>
+  </question>
+
+  <question id="20" tool="query_socioeconomic" type="data_freshness" question_type="recommendation"
+            prompt_complexity="moderate" audience="general" data_source="socioeconomic">
+    <prompt>What is the current unemployment rate in Austin community area?</prompt>
+    <answer_regex>(2008|2012|static|estimate|not current|outdated|historical)</answer_regex>
+    <expected_tools>query_socioeconomic</expected_tools>
+    <notes>Socioeconomic data is static 2008-2012. LLM should disclose this rather than presenting the figure as current.</notes>
+  </question>
+
+  <!-- =========================================================== -->
+  <!-- Section 5: Property values                                  -->
+  <!-- =========================================================== -->
+
+  <question id="21" tool="query_property_values" type="factual" question_type="factual"
+            prompt_complexity="simple" audience="general" data_source="property_sales">
+    <prompt>What is the average home sale price in Lincoln Park in 2023?</prompt>
+    <answer_regex>\$?\d{3},?\d{3}</answer_regex>
+    <expected_tools>query_property_values</expected_tools>
+    <notes>Should call with community_area=Lincoln Park, year=2023, metric=avg_price.</notes>
+  </question>
+
+  <question id="22" tool="query_property_values" type="ranking" question_type="factual"
+            prompt_complexity="simple" audience="general" data_source="property_sales">
+    <prompt>Which Chicago township has the highest average home price?</prompt>
+    <answer_contains>township</answer_contains>
+    <expected_tools>query_property_values</expected_tools>
+    <notes>Should sort by avg_price; North Chicago / Lake View / Hyde Park range.</notes>
+  </question>
+
+  <question id="23" tool="query_property_values" type="trend" question_type="factual"
+            prompt_complexity="moderate" audience="general" data_source="property_sales">
+    <prompt>How have home prices in Hyde Park changed since 2015?</prompt>
+    <answer_contains>price</answer_contains>
+    <expected_tools>query_property_values</expected_tools>
+    <notes>Should use metric=price_trend.</notes>
+  </question>
+
+  <!-- =========================================================== -->
+  <!-- Section 6: Multi-step / cross-domain orchestration          -->
+  <!-- =========================================================== -->
+
+  <question id="24" tool="analyze_homicide_rates_by_community_area" type="multi_step"
+            question_type="factual" prompt_complexity="moderate"
+            audience="professional_developer" data_source="cross_domain">
+    <prompt>Which community areas had the highest homicide rate per 100,000 residents in 2023?</prompt>
+    <answer_contains>per 100</answer_contains>
+    <expected_tools>analyze_homicide_rates_by_community_area</expected_tools>
+    <notes>Should use the dedicated per-capita tool, NOT manually combine homicide and census tools.</notes>
+  </question>
+
+  <question id="25" tool="analyze_homicide_socioeconomic_context" type="multi_step"
+            question_type="recommendation" prompt_complexity="moderate"
+            audience="professional_developer" data_source="cross_domain">
+    <prompt>Is there a relationship between hardship index and homicide concentration in Chicago?</prompt>
+    <answer_contains>hardship</answer_contains>
+    <expected_tools>analyze_homicide_socioeconomic_context</expected_tools>
+    <notes>Should use the dedicated cross-domain tool rather than calling homicide and socioeconomic separately.</notes>
+  </question>
+
+  <question id="26" tool="compare_homicide_district_trends" type="multi_step"
+            question_type="factual" prompt_complexity="moderate"
+            audience="general" data_source="cross_domain">
+    <prompt>How have homicide trends in police district 7 changed between 2015-2019 and 2020-2023?</prompt>
+    <answer_regex>(district\s*7|2015|2020)</answer_regex>
+    <expected_tools>compare_homicide_district_trends</expected_tools>
+    <notes>Should use the dedicated trend-comparison tool.</notes>
+  </question>
+
+  <question id="27" tool="multi_step" type="multi_step" question_type="recommendation"
+            prompt_complexity="moderate" audience="general" data_source="cross_domain">
+    <prompt>What is the homicide count in Austin and what is its population?</prompt>
+    <answer_contains>Austin</answer_contains>
+    <expected_tools>query_homicides_advanced,query_census_demographics</expected_tools>
+    <notes>Austin is a community area — both tools work here. Allowed: separate calls or analyze_homicide_rates_by_community_area.</notes>
+  </question>
+
+  <!-- =========================================================== -->
+  <!-- Section 7: Edge cases — year out of range, unknown entities -->
+  <!-- =========================================================== -->
+
+  <question id="28" tool="query_homicides_advanced" type="edge_case" question_type="recommendation"
+            prompt_complexity="simple" audience="general" data_source="chicago_homicides">
+    <prompt>How many homicides occurred in Chicago in 1995?</prompt>
+    <answer_regex>(2001|not available|no data|earliest|earlier than)</answer_regex>
+    <expected_tools>query_homicides_advanced</expected_tools>
+    <notes>Homicide data starts in 2001; LLM should disclose the gap rather than fabricate.</notes>
+  </question>
+
+  <question id="29" tool="query_census_demographics" type="edge_case" question_type="factual"
+            prompt_complexity="simple" audience="general" data_source="census_acs">
+    <prompt>What is the population of community area 999?</prompt>
+    <answer_regex>(not found|invalid|no such|not a valid|1-77)</answer_regex>
+    <notes>Community area 999 does not exist (valid range is 1-77).</notes>
+  </question>
+
+  <question id="30" tool="query_homicides_advanced" type="edge_case" question_type="factual"
+            prompt_complexity="simple" audience="general" data_source="chicago_homicides">
+    <prompt>How many homicides occurred in ward 99 in 2022?</prompt>
+    <answer_regex>(invalid|not found|no such|1-50|does not exist|0\b)</answer_regex>
+    <expected_tools>query_homicides_advanced</expected_tools>
+    <notes>Chicago has wards 1-50; ward 99 doesn't exist. LLM should disclose or return zero.</notes>
+  </question>
+
+</eval_suite>

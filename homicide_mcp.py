@@ -21,6 +21,53 @@ from mcp import Tool
 from chicago_data_fetcher import ChicagoHomicideDataFetcher
 from base_domain import BaseDataDomain
 
+
+def _load_ca_lookup() -> Dict[str, Any]:
+    """Load community_areas.json for name→number resolution."""
+    path = Path("knowledge_base/community_areas.json")
+    if not path.exists():
+        return {"areas": {}, "aliases": {}}
+    with open(path, "r", encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def _resolve_ca_number(value: Any) -> Optional[int]:
+    """Resolve a community area name or number to its 1-77 integer.
+
+    Accepts:
+    - int / float already (e.g. 25, 25.0)
+    - numeric string ("25", "25.0")
+    - community area name ("Austin", "AUSTIN", "austin")
+    - alias defined in community_areas.json
+    """
+    if value is None:
+        return None
+    lookup = _load_ca_lookup()
+    name_to_num: Dict[str, int] = {}
+    for num_str, name in lookup.get("areas", {}).items():
+        name_to_num[str(name).strip().lower()] = int(num_str)
+    for alias, num in lookup.get("aliases", {}).items():
+        name_to_num[str(alias).strip().lower()] = int(num)
+
+    # Try direct numeric conversion first
+    try:
+        num = int(float(str(value).strip()))
+        if 1 <= num <= 77:
+            return num
+    except (TypeError, ValueError):
+        pass
+
+    key = str(value).strip().lower()
+    if not key:
+        return None
+    if key in name_to_num:
+        return name_to_num[key]
+    # Substring fallback
+    for known, known_num in name_to_num.items():
+        if key in known or known in key:
+            return known_num
+    return None
+
 class HomicideDataMCP(BaseDataDomain):
     """MCP Server for Chicago Homicide Data Analysis."""
 
@@ -48,7 +95,7 @@ class HomicideDataMCP(BaseDataDomain):
                     "end_year": {"type": "integer", "description": "End year for date range filter"},
                     "ward": {"type": "integer", "description": "Ward number to filter by (1-50)"},
                     "district": {"type": "integer", "description": "Police district number to filter by"},
-                    "community_area": {"type": "integer", "description": "Community area number to filter by"},
+                    "community_area": {"type": "string", "description": "Community area name (e.g., 'Austin', 'Englewood') or number 1-77 (e.g., '25'). Always pass the name or number exactly as provided — do NOT skip this filter if the user specifies a community area."},
                     "arrest_status": {"type": "boolean", "description": "Filter by arrest status: true for arrests made, false for no arrests"},
                     "domestic": {"type": "boolean", "description": "Filter by domestic violence cases"},
                     "location_type": {"type": "string", "description": "Filter by location type (e.g., 'STREET', 'APARTMENT', 'RESIDENCE')"},
@@ -535,7 +582,7 @@ class HomicideDataMCP(BaseDataDomain):
                                 end_year: Optional[int] = None,
                                 ward: Optional[int] = None,
                                 district: Optional[int] = None,
-                                community_area: Optional[int] = None,
+                                community_area: Optional[Any] = None,
                                 arrest_status: Optional[bool] = None,
                                 domestic: Optional[bool] = None,
                                 location_type: Optional[str] = None,
@@ -572,8 +619,11 @@ class HomicideDataMCP(BaseDataDomain):
                 filters_applied.append(f"district: {district}")
             
             if community_area is not None:
-                df = df[pd.to_numeric(df['Community Area'], errors='coerce') == community_area]
-                filters_applied.append(f"community_area: {community_area}")
+                ca_number = _resolve_ca_number(community_area)
+                if ca_number is None:
+                    return {"error": f"Cannot resolve community area '{community_area}'. Use a name like 'Austin' or a number 1-77."}
+                df = df[pd.to_numeric(df['Community Area'], errors='coerce') == ca_number]
+                filters_applied.append(f"community_area: {ca_number}")
             
             # Apply status filters
             if arrest_status is not None:

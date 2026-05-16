@@ -56,15 +56,26 @@ class CrossDomainAnalysisMCP(BaseDataDomain):
                 "name": "analyze_homicide_rates_by_community_area",
                 "description": (
                     "Calculate homicide counts and homicide rates per 100,000 residents by Chicago "
-                    "community area by joining homicide records to ACS census population. Use for "
-                    "rate questions, per-capita comparisons, and 'which community area has the "
-                    "highest homicide rate' questions."
+                    "community area by joining homicide records to ACS census population. "
+                    "Use this for ANY question that needs per-capita / per-population homicide "
+                    "numbers for a community area — including a SINGLE area like 'homicides in "
+                    "Austin per population from 2018 to 2023'. Pass the community_area name OR "
+                    "number (1-77) to focus the result on one area; omit it to rank the top areas. "
+                    "Examples: community_area='Austin', community_area='25', or community_area=25. "
+                    "Also use for 'which community area has the highest homicide rate' questions."
                 ),
                 "parameters": {
                     "start_year": {"type": "integer", "description": "Start homicide year"},
                     "end_year": {"type": "integer", "description": "End homicide year"},
+                    "community_area": {
+                        "type": "string",
+                        "description": (
+                            "Optional community area name (e.g., 'Austin') or number 1-77 "
+                            "(e.g., '25' or 25) to focus the result on a single area."
+                        ),
+                    },
                     "domestic": {"type": "boolean", "description": "Filter to domestic or non-domestic cases"},
-                    "top_n": {"type": "integer", "description": "Number of rows to return (default 10)"},
+                    "top_n": {"type": "integer", "description": "Number of rows to return when no community_area is given (default 10)"},
                     "sort_by": {
                         "type": "string",
                         "description": "'rate', 'count', or 'community_area' (default 'rate')",
@@ -145,6 +156,7 @@ class CrossDomainAnalysisMCP(BaseDataDomain):
             return self.analyze_homicide_rates_by_community_area(
                 start_year=arguments.get("start_year"),
                 end_year=arguments.get("end_year"),
+                community_area=arguments.get("community_area"),
                 domestic=arguments.get("domestic"),
                 top_n=arguments.get("top_n", 10),
                 sort_by=arguments.get("sort_by", "rate"),
@@ -198,6 +210,7 @@ class CrossDomainAnalysisMCP(BaseDataDomain):
         self,
         start_year: Optional[int] = None,
         end_year: Optional[int] = None,
+        community_area: Optional[Any] = None,
         domestic: Optional[bool] = None,
         top_n: int = 10,
         sort_by: str = "rate",
@@ -206,6 +219,24 @@ class CrossDomainAnalysisMCP(BaseDataDomain):
         if isinstance(homicide_df, dict):
             return homicide_df
 
+        # Optionally focus on a single community area (by name or number)
+        focus_number: Optional[int] = None
+        focus_name: Optional[str] = None
+        if community_area is not None and str(community_area).strip() != "":
+            focus_number = self._resolve_community_area_number(community_area)
+            if focus_number is None:
+                return {
+                    "error": (
+                        f"Could not resolve community area '{community_area}'. "
+                        "Provide a Chicago community area name (e.g., 'Austin') or number 1-77."
+                    )
+                }
+            focus_name = self._community_area_name(focus_number)
+            if "Community Area" in homicide_df.columns:
+                homicide_df = homicide_df[
+                    pd.to_numeric(homicide_df["Community Area"], errors="coerce") == focus_number
+                ]
+
         population_df = self._population_by_community_area()
         if population_df.empty:
             return {"error": "Census population data is not available for rate calculations"}
@@ -213,18 +244,44 @@ class CrossDomainAnalysisMCP(BaseDataDomain):
         joined = self._community_homicide_counts(homicide_df).merge(
             population_df, on="community_area_number", how="left"
         )
+
+        # If filtering to a specific area but no homicide rows were found, still
+        # surface the area with a zero count + population so the answer is useful.
+        if focus_number is not None and joined.empty:
+            pop_row = population_df[population_df["community_area_number"] == focus_number]
+            population_value = (
+                int(pop_row["population"].iloc[0]) if not pop_row.empty else None
+            )
+            joined = pd.DataFrame([
+                {
+                    "community_area_number": focus_number,
+                    "community_area": focus_name,
+                    "homicide_count": 0,
+                    "population": population_value,
+                }
+            ])
+
         joined["homicide_rate_per_100k"] = joined.apply(
             lambda row: self._rate(row["homicide_count"], row["population"]), axis=1
         )
-        rows = self._rank(joined, sort_by, top_n, {
-            "rate": "homicide_rate_per_100k",
-            "count": "homicide_count",
-            "community_area": "community_area_number",
-        })
+
+        if focus_number is not None:
+            # Single-area answer — skip ranking/top_n
+            rows = joined
+        else:
+            rows = self._rank(joined, sort_by, top_n, {
+                "rate": "homicide_rate_per_100k",
+                "count": "homicide_count",
+                "community_area": "community_area_number",
+            })
 
         return {
             "analysis": "homicide_rates_by_community_area",
-            "filters": self._filters(start_year, end_year, domestic),
+            "filters": {
+                **self._filters(start_year, end_year, domestic),
+                "community_area": focus_name if focus_number is not None else None,
+                "community_area_number": focus_number,
+            },
             "population_year": self._latest_census_year(),
             "total_homicides": int(homicide_df.shape[0]),
             "sort_by": sort_by,
@@ -540,6 +597,28 @@ class CrossDomainAnalysisMCP(BaseDataDomain):
     def _community_area_name(self, number: int) -> str:
         return self._ca_lookup.get("areas", {}).get(str(int(number)), f"Community Area {int(number)}")
 
+    def _resolve_community_area_number(self, value: Any) -> Optional[int]:
+        """Resolve a community area name or number string to its 1-77 number."""
+        if value is None:
+            return None
+        # Numeric input (int, float, or numeric string)
+        try:
+            num = int(float(str(value).strip()))
+            if 1 <= num <= 77:
+                return num
+        except (TypeError, ValueError):
+            pass
+        key = str(value).strip().lower()
+        if not key:
+            return None
+        if key in self._name_to_num:
+            return int(self._name_to_num[key])
+        # Best-effort substring match against known community area names
+        for known_lower, known_num in self._name_to_num.items():
+            if key in known_lower or known_lower in key:
+                return int(known_num)
+        return None
+
     @staticmethod
     def _rate(count: Any, population: Any) -> Optional[float]:
         try:
@@ -612,6 +691,32 @@ class CrossDomainAnalysisMCP(BaseDataDomain):
 
     @staticmethod
     def _format_rate_result(result: Dict[str, Any]) -> str:
+        filters = result.get("filters", {}) or {}
+        focus = filters.get("community_area")
+        period_bits = []
+        if filters.get("start_year") is not None:
+            period_bits.append(str(filters["start_year"]))
+        if filters.get("end_year") is not None:
+            period_bits.append(str(filters["end_year"]))
+        period = "-".join(period_bits) if period_bits else "all years"
+
+        if focus:
+            lines = [
+                f"Homicide rate for {focus} (CA {filters.get('community_area_number')}), {period}",
+                f"Population year: {result.get('population_year')}",
+            ]
+            for row in result.get("rows", []):
+                rate = row.get("homicide_rate_per_100k")
+                rate_text = (
+                    f"{rate} per 100,000 residents" if rate is not None else "rate unavailable"
+                )
+                lines.append(
+                    f"- Homicides: {row.get('homicide_count')}, "
+                    f"Population: {row.get('population')}, "
+                    f"Rate: {rate_text}"
+                )
+            return "\n".join(lines)
+
         lines = [
             "Homicide rates by community area",
             f"Population year: {result.get('population_year')}",

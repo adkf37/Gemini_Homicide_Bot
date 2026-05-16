@@ -76,6 +76,48 @@ header p {
     border: 1px solid rgba(31, 60, 136, 0.1);
 }
 
+.tool-chips {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+    margin-top: 0.6rem;
+    padding-top: 0.5rem;
+    border-top: 1px dashed rgba(31, 60, 136, 0.15);
+}
+
+.tool-chips-prefix {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #4a4a68;
+    opacity: 0.75;
+    margin-right: 0.15rem;
+}
+
+.tool-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.25rem 0.6rem;
+    border-radius: 999px;
+    background: rgba(31, 60, 136, 0.08);
+    border: 1px solid rgba(31, 60, 136, 0.18);
+    color: #1f3c88;
+    font-size: 0.8rem;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
+.tool-chip-icon {
+    font-size: 0.95rem;
+    line-height: 1;
+}
+
+.tool-chip-label {
+    font-weight: 500;
+}
+
 .message.status {
     align-self: center;
     background: rgba(31, 60, 136, 0.08);

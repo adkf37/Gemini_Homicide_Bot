@@ -54,10 +54,71 @@
         const DEFAULT_CHART_MESSAGE = "Charts will appear when MCP tool data is available.";
         let homicideChart = null;
 
-        function addMessage(role, text) {
+        function escapeHtml(value) {
+            return String(value)
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#39;");
+        }
+
+        // Map MCP tool names to a short label, icon (emoji), and description.
+        const TOOL_BADGES = {
+            query_homicides_advanced: { icon: "\uD83D\uDD2B", label: "Homicide query" },
+            get_iucr_info: { icon: "\u2139\uFE0F", label: "IUCR codes" },
+            query_census_demographics: { icon: "\uD83D\uDC65", label: "Census demographics" },
+            query_socioeconomic_indicators: { icon: "\uD83D\uDCCA", label: "Socioeconomic" },
+            query_property_sales: { icon: "\uD83C\uDFE0", label: "Property sales" },
+            analyze_homicide_rates_by_community_area: { icon: "\uD83D\uDCC8", label: "Homicide rate per 100k" },
+            analyze_homicide_socioeconomic_context: { icon: "\uD83E\uDDE9", label: "Homicide \u00D7 socioeconomic" },
+            compare_homicide_district_trends: { icon: "\uD83D\uDD04", label: "District trends" },
+            analyze_homicide_rate_population_change: { icon: "\uD83D\uDCC9", label: "Rate vs population change" },
+        };
+
+        function badgeForTool(name) {
+            if (!name) {
+                return { icon: "\uD83D\uDD27", label: "MCP tool" };
+            }
+            if (TOOL_BADGES[name]) {
+                return TOOL_BADGES[name];
+            }
+            return { icon: "\uD83D\uDD27", label: titleCase(name) };
+        }
+
+        function buildToolChipsMarkup(toolNames) {
+            if (!Array.isArray(toolNames) || toolNames.length === 0) {
+                return "";
+            }
+            const seen = new Set();
+            const chips = [];
+            for (const name of toolNames) {
+                if (!name || seen.has(name)) {
+                    continue;
+                }
+                seen.add(name);
+                const badge = badgeForTool(name);
+                chips.push(
+                    `<span class="tool-chip" title="${escapeHtml(name)}">` +
+                        `<span class="tool-chip-icon" aria-hidden="true">${badge.icon}</span>` +
+                        `<span class="tool-chip-label">${escapeHtml(badge.label)}</span>` +
+                    `</span>`
+                );
+            }
+            if (!chips.length) {
+                return "";
+            }
+            return `<div class="tool-chips" aria-label="MCP tools used">` +
+                `<span class="tool-chips-prefix">MCP tools</span>${chips.join("")}</div>`;
+        }
+
+        function addMessage(role, text, options = {}) {
             const message = document.createElement("div");
             message.className = `message ${role}`;
-            message.innerHTML = `<strong>${role === "user" ? "You" : "Gemini"}:</strong> ${text}`;
+            const speaker = role === "user" ? "You" : "Gemini";
+            const body = `<strong>${speaker}:</strong> ${text}`;
+            const chips = options.toolNames ? buildToolChipsMarkup(options.toolNames) : "";
+            message.innerHTML = `${body}${chips}`;
             chatWindow.appendChild(message);
             chatWindow.scrollTop = chatWindow.scrollHeight;
         }
@@ -302,18 +363,29 @@
                     throw new Error(payload.error || "Unknown error");
                 }
 
-                const suffixParts = [];
-                if (payload.used_tools && payload.tool_name) {
-                    suffixParts.push(`MCP tools: ${payload.tool_name}`);
-                } else if (payload.used_tools) {
-                    suffixParts.push("MCP tools");
-                }
-                const suffix = suffixParts.length ? ` (${suffixParts.join(", ")})` : "";
-                addMessage("assistant", `${payload.answer}${suffix}`);
+                const toolNames = Array.isArray(payload.tool_names) && payload.tool_names.length
+                    ? payload.tool_names
+                    : (payload.tool_name ? [payload.tool_name] : []);
+                addMessage("assistant", payload.answer, { toolNames });
 
                 if (payload.tool_data) {
-                    const series = extractChartSeries(payload.tool_data);
-                    renderChart(series);
+                    const candidates = Array.isArray(payload.tool_data)
+                        ? payload.tool_data
+                        : [payload.tool_data];
+                    let series = null;
+                    for (const candidate of candidates) {
+                        series = extractChartSeries(candidate);
+                        if (series) {
+                            break;
+                        }
+                    }
+                    if (series) {
+                        renderChart(series);
+                    } else if (payload.used_tools) {
+                        showChartPlaceholder("No chartable data was returned for this tool call.");
+                    } else {
+                        showChartPlaceholder();
+                    }
                 } else if (payload.used_tools) {
                     showChartPlaceholder("No chartable data was returned for this tool call.");
                 } else {

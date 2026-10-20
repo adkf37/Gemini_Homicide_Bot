@@ -87,3 +87,6 @@ tmp/
 
 # ChromaDB vector database
 data/chroma_db/
+
+# Required static lookup used by community-area joins.
+!knowledge_base/community_areas.json

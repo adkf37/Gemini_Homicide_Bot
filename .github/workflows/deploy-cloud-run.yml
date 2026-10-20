@@ -34,7 +34,6 @@ jobs:
       - name: Run unit tests
         run: |
           pytest tests -v
-        continue-on-error: true
 
   deploy:
     name: Build and Deploy to Cloud Run

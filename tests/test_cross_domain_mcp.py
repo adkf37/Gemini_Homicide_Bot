@@ -3,12 +3,12 @@
 
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pandas as pd
 
 from cross_domain_mcp import CrossDomainAnalysisMCP
 from homicide_mcp import HomicideDataMCP
-from intelligent_mcp import IntelligentMCPHandler
 
 
 def _fixture_path(name: str) -> str:
@@ -80,6 +80,10 @@ def test_district_trend_comparison_is_deterministic():
 
 
 def test_trace_finalizer_promotes_iteration_tool_usage():
+    # Trace formatting needs no live registry or city-wide dataset downloads.
+    with patch.dict("sys.modules", {"mcp_integration": SimpleNamespace(mcp_integration=None)}):
+        from intelligent_mcp import IntelligentMCPHandler
+
     handler = IntelligentMCPHandler()
     trace = {
         "question": "Which district changed most?",

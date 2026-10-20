@@ -1,4 +1,5 @@
 from typing import List, Dict, Any, Optional, Union
+import os
 
 import google.generativeai as genai
 from config import config
@@ -11,7 +12,7 @@ class LlamaClient:
 
     def __init__(self, model_name: Optional[str] = None):
         self.config = config
-        self.model_name = model_name or self.config.get('model.name', 'gemini-2.5-flash-lite')
+        self.model_name = model_name or os.environ.get('GEMINI_MODEL') or self.config.get('model.name', 'gemini-3.8-flash')
         self.system_prompt_variant = self.config.get('prompts.system_prompt_variant', 'tool_use_reasoned')
 
         api_key = resolve_gemini_api_key(self.config)

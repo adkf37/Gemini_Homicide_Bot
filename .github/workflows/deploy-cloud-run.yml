@@ -128,7 +128,7 @@ jobs:
             --region ${{ env.REGION }} \
             --allow-unauthenticated \
             --revision-suffix="$REVISION_SUFFIX" \
-            --update-env-vars=GOOGLE_API_KEY_SECRET_REF=gemini-api-key,GCP_PROJECT_ID=${{ env.PROJECT_ID }} \
+            --update-env-vars=GOOGLE_API_KEY_SECRET_REF=gemini-api-key,GCP_PROJECT_ID=${{ env.PROJECT_ID }},GEMINI_MODEL=gemini-3.8-flash \
             --memory 512Mi \
             --cpu 1 \
             --timeout 300 \

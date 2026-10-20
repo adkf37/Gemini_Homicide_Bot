@@ -1,6 +1,6 @@
 # Gemini MCP Tools for Chicago Homicide and Public Data Analysis
 
-This project integrates Google's Gemini API with **Model Context Protocol (MCP)** tools for deterministic analysis of Chicago homicide, census, socioeconomic, and property data. The default model in `config.yaml` is `gemini-2.5-flash-lite`; the model can be changed without changing the MCP tool layer.
+This project integrates Google's Gemini API with **Model Context Protocol (MCP)** tools for deterministic analysis of Chicago homicide, census, socioeconomic, and property data. The default model in `config.yaml` is `gemini-3.8-flash`; the model can be changed without changing the MCP tool layer.
 
 ## 🚀 Features
 
@@ -51,7 +51,7 @@ pip install -r requirements.txt
 Edit `config.yaml` to set your preferred model:
 ```yaml
 model:
-  name: "gemini-2.5-flash-lite"
+  name: "gemini-3.8-flash"
   temperature: 0.7
   max_tokens: 2048
 ```
@@ -145,7 +145,7 @@ The `config.yaml` file controls model behavior:
 
 ```yaml
 model:
-  name: "gemini-2.5-flash-lite"        # Gemini model name
+  name: "gemini-3.8-flash"        # Gemini model name
   temperature: 0.7                     # Response creativity (0.0-2.0)
   max_tokens: 2048                    # Maximum response length
   top_p: 0.9                          # Nucleus sampling

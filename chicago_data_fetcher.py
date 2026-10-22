@@ -19,7 +19,7 @@ class ChicagoHomicideDataFetcher(BaseSocrataFetcher):
     """Fetches and caches Chicago homicide data from the city's open data API.
     
     Extends BaseSocrataFetcher but overrides fetch methods to use the
-    special v3 CSV export endpoint (faster for this large dataset).
+    paginated CSV resource endpoint for the filtered homicide view.
     """
 
     # The crimes dataset on the Chicago portal
@@ -35,8 +35,9 @@ class ChicagoHomicideDataFetcher(BaseSocrataFetcher):
             cache_expiry_hours=6,
             cache_filename="homicides_cache.csv",
         )
-        # CSV export endpoint (faster for bulk fetches)
-        self.csv_url = f"https://data.cityofchicago.org/api/v3/views/{self.CSV_VIEW_ID}/query.csv"
+        # The v3 query endpoint ignores v2 $offset/$limit parameters and
+        # returned the entire view on every iteration, stalling cold starts.
+        self.csv_url = f"https://data.cityofchicago.org/resource/{self.CSV_VIEW_ID}.csv"
         # Keep legacy attribute for backward compat
         self.base_url = self.csv_url
 
@@ -47,7 +48,7 @@ class ChicagoHomicideDataFetcher(BaseSocrataFetcher):
     def get_total_record_count(self) -> int:
         """Get the total number of records available via API."""
         try:
-            count_url = f"https://data.cityofchicago.org/resource/{self.CRIMES_DATASET_ID}.json?$select=count(*)"
+            count_url = f"https://data.cityofchicago.org/resource/{self.CSV_VIEW_ID}.json?$select=count(*)"
             response = requests.get(count_url, timeout=30)
             response.raise_for_status()
             data = response.json()
@@ -59,13 +60,15 @@ class ChicagoHomicideDataFetcher(BaseSocrataFetcher):
 
     def fetch_batch(self, offset: int, limit: int) -> pd.DataFrame:
         """Fetch a batch of records from the CSV API."""
-        params = {"$offset": offset, "$limit": min(limit, self.max_limit)}
+        params = {"$offset": offset, "$limit": min(limit, self.max_limit), "$order": "id"}
         try:
             print(f"  📥 Fetching records {offset:,} to {offset + limit:,}...")
             response = requests.get(self.csv_url, params=params, timeout=60)
             response.raise_for_status()
             if response.text.strip():
                 df = pd.read_csv(StringIO(response.text))
+                if len(df) > params["$limit"]:
+                    raise ValueError("Homicide API ignored the requested page limit")
                 print(f"  ✅ Retrieved {len(df):,} records")
                 return df
             print(f"  ⚠️  Empty response for offset {offset}")
@@ -106,13 +109,9 @@ class ChicagoHomicideDataFetcher(BaseSocrataFetcher):
                     break
                 time.sleep(0.5)
                 if batch_count > 100:
-                    print("  ⚠️  Reached batch limit, stopping")
-                    break
+                    raise ValueError("Homicide dataset exceeded the safe page limit")
             except Exception as e:
                 print(f"❌ Error during batch fetch: {e}")
-                if all_dataframes:
-                    print("🔄 Using partial data fetched so far...")
-                    break
                 raise
 
         if not all_dataframes:
